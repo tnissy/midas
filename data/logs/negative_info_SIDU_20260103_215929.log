@@ -1,0 +1,32 @@
+2026-01-03 21:59:29 | INFO     | === Negative Info Watcher: SIDU ===
+2026-01-03 21:59:29 | INFO     | Log file: /Users/nsgctty/Midas/data/logs/negative_info_SIDU_20260103_215929.log
+2026-01-03 21:59:29 | INFO     | Fetching company info for SIDU...
+2026-01-03 21:59:29 | INFO     | Company: Sidus Space, Inc.
+2026-01-03 21:59:29 | INFO     | Fetching recent news...
+2026-01-03 21:59:30 | DEBUG    | Fetched 79 items for query: SIDU
+2026-01-03 21:59:31 | DEBUG    | Fetched 94 items for query: Sidus Space, Inc.
+2026-01-03 21:59:31 | INFO     | Total: 118 news items found (deduplicated)
+2026-01-03 21:59:31 | INFO     | Pre-filtering news for negative keywords...
+2026-01-03 21:59:31 | DEBUG    | Pre-filtered: Sidus Space (SIDU) stock surges 34% after new 7.4% stake fil... | Keywords: ['sec']
+2026-01-03 21:59:31 | DEBUG    | Pre-filtered: Sidus Space Stock (SIDU) Opinions on Missile Defense Contrac... | Keywords: ['miss']
+2026-01-03 21:59:31 | DEBUG    | Pre-filtered: Sidus Space Awarded Contract Under Missile Defense Agency's ... | Keywords: ['miss']
+2026-01-03 21:59:31 | DEBUG    | Pre-filtered: Sidus Space Awarded Contract Under Missile Defense Agency's ... | Keywords: ['miss']
+2026-01-03 21:59:31 | DEBUG    | Pre-filtered: Sidus Space Awarded Contract Under Missile Defense Agency's ... | Keywords: ['miss']
+2026-01-03 21:59:31 | DEBUG    | Pre-filtered: AI-driven tech firm joins $151B push to bolster U.S. missile... | Keywords: ['miss']
+2026-01-03 21:59:31 | DEBUG    | Pre-filtered: Sidus Space Advances with Successful Satellite Commissioning... | Keywords: ['miss']
+2026-01-03 21:59:31 | DEBUG    | Pre-filtered: Sidus Space Secures Strategic Milestones in Expanding Space ... | Keywords: ['sec']
+2026-01-03 21:59:31 | DEBUG    | Pre-filtered: Sidus Space Finalizes LizzieSat-3 Commissioning - Sidus Spac... | Keywords: ['miss']
+2026-01-03 21:59:31 | DEBUG    | Pre-filtered: Sidus Space Announces Successful Bus-Level Commissioning of ... | Keywords: ['miss']
+2026-01-03 21:59:31 | DEBUG    | Pre-filtered: Sidus Space completes bus-level commissioning of LizzieSat-3... | Keywords: ['miss']
+2026-01-03 21:59:31 | DEBUG    | Pre-filtered: SIDU: Revenue fell 31% and net loss widened as the company p... | Keywords: ['loss']
+2026-01-03 21:59:31 | DEBUG    | Pre-filtered: Sidus Space Finalizes Commercial Pathfinder Mission Agreemen... | Keywords: ['miss']
+2026-01-03 21:59:31 | DEBUG    | Pre-filtered: Sidus Space Awarded Contract Under Missile Defense Agency's ... | Keywords: ['miss']
+2026-01-03 21:59:31 | DEBUG    | Pre-filtered: Sidus Space CEO Carol Craig Appointed to Canaveral Port Auth... | Keywords: ['miss']
+2026-01-03 21:59:31 | DEBUG    | Pre-filtered: Sidus Space stock rises after securing NASA SBIR subcontract... | Keywords: ['sec']
+2026-01-03 21:59:31 | DEBUG    | Pre-filtered: Sidus Space finalizes commercial pathfinder mission agreemen... | Keywords: ['miss']
+2026-01-03 21:59:31 | INFO     | Pre-filtered: 17 potentially negative items
+2026-01-03 21:59:31 | INFO     | Analyzing negative news with LLM...
+2026-01-03 22:00:36 | INFO     | Analysis complete: 0 negative / 0 total
+2026-01-03 22:00:36 | INFO     | Saving results...
+2026-01-03 22:00:36 | INFO     | Saved to: /Users/nsgctty/Midas/data/company_analysis/negative_info_SIDU_20260103_220036.json
+2026-01-03 22:00:36 | INFO     | === Analysis Complete ===

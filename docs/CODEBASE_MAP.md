@@ -1,6 +1,6 @@
 # Midas コードベースマップ
 
-## プロジェクト概要
+## 1. プロジェクト概要
 
 **Midas** は、長期投資家向けの投資意思決定支援エージェントシステム。世界・社会・技術の構造変化を継続的に監視して、価値が移動する地点を見極める。
 
@@ -13,438 +13,449 @@
 
 ---
 
-## ファイル構成
+## 2. ファイル構成（Tree View）
 
 ```
 Midas/
-├── .claude/                      # Claude Code 設定ディレクトリ
-│   ├── commands/                 # カスタムスラッシュコマンド定義
-│   │   └── analyze-project.md   # /analyze-project コマンド
-│   └── settings.local.json      # プロジェクト固有の権限設定
-├── data/
-│   └── news/                     # ニュースデータ保存ディレクトリ（JSON）
+├── .claude/                         # Claude Code 設定
+│   ├── commands/
+│   │   └── analyze-project.md       # /analyze-project カスタムコマンド
+│   └── settings.local.json          # 権限設定
+├── data/                            # データ保存ディレクトリ
+│   ├── company_analysis/            # 企業分析結果
+│   ├── future_insights/             # 未来洞察レポート（farseer/と同義）
+│   ├── general/                     # 一般ニュース
+│   ├── logs/                        # 実行ログ
+│   ├── news/                        # ニュースキャッシュ
+│   ├── other_gov/                   # 米国以外政府ニュース
+│   ├── portfolio/                   # ポートフォリオデータ
+│   ├── prediction_analysis/         # 予測分析結果
+│   ├── tech/                        # 技術ニュース
+│   └── us_gov/                      # 米国政府ニュース
 ├── docs/
-│   ├── requirements.md           # 要件定義書（投資哲学・機能要件）
-│   └── CODEBASE_MAP.md           # コードベースマップ（本ファイル）
-├── src/
-│   └── midas/
-│       ├── __init__.py           # パッケージ初期化、バージョン定義
-│       ├── __main__.py           # python -m midas エントリーポイント
-│       ├── main.py               # CLI メインエントリーポイント
-│       ├── config.py             # 設定・環境変数・RSS ソース定義
-│       ├── models.py             # Pydantic データモデル
-│       ├── agents/
-│       │   ├── __init__.py
-│       │   └── us_gov_news.py    # 米国政府ニュース収集エージェント
-│       └── tools/
-│           ├── __init__.py
-│           └── rss_fetcher.py    # RSS フィード取得ツール
-├── .env                          # 環境変数（GEMINI_API_KEY）※Git管理外
-├── .env.example                  # 環境変数のテンプレート
-├── .gitignore                    # Git 管理除外設定
-└── pyproject.toml                # プロジェクト設定・依存関係
+│   ├── requirements.md              # 要件定義書
+│   └── CODEBASE_MAP.md              # 本ファイル
+├── src/midas/
+│   ├── __init__.py                  # パッケージ初期化
+│   ├── __main__.py                  # python -m midas エントリーポイント
+│   ├── main.py                      # CLI メインエントリーポイント
+│   ├── config.py                    # 設定・環境変数管理
+│   ├── models.py                    # Pydantic データモデル
+│   ├── agents/                      # LangGraph エージェント群
+│   │   ├── __init__.py
+│   │   ├── us_gov_news_watcher.py   # 米国政府ニュース監視
+│   │   ├── tech_news_watcher.py     # 技術ニュース監視
+│   │   ├── other_gov_news_watcher.py # 米国以外政府ニュース監視
+│   │   ├── general_news_watcher.py  # 一般ニュース監視
+│   │   ├── price_event_analyzer.py  # 株価イベント分析
+│   │   ├── negative_info_watcher.py # 企業分析エージェント
+│   │   ├── portfolio_analyzer.py    # ポートフォリオ分析
+│   │   ├── future_insight_agent.py  # 未来洞察エージェント
+│   │   └── critical_company_finder.py # 重要企業発見
+│   └── tools/                       # ツール群
+│       ├── __init__.py
+│       ├── rss_fetcher.py           # RSS フィード取得
+│       ├── stock_screener.py        # 株式スクリーニング
+│       ├── portfolio_manager.py     # ポートフォリオ管理
+│       └── company_news_fetcher.py  # 企業ニュース取得
+├── .env                             # 環境変数（Git 管理外）
+├── .gitignore
+├── pyproject.toml                   # プロジェクト設定
+└── uv.lock                          # 依存関係ロック
 ```
 
 ---
 
-## Claude Code 設定 (.claude/)
+## 3. Claude Code 設定 (.claude/)
 
-Claude Code（AI コーディングアシスタント）のプロジェクト固有設定を格納するディレクトリ。
-
-### .claude/settings.local.json
-
-プロジェクト固有の権限設定ファイル。確認なしで実行できる MCP ツールを定義。
+### settings.local.json
 
 ```json
 {
   "permissions": {
     "allow": [
-      "mcp__filesystem__list_directory",  // ディレクトリ一覧取得
-      "mcp__git__git_status",             // Git ステータス確認
-      "mcp__git__git_log",                // Git ログ確認
-      "mcp__filesystem__directory_tree"   // ディレクトリツリー取得
+      "mcp__filesystem__list_directory",
+      "mcp__git__git_status",
+      "mcp__git__git_log",
+      "mcp__filesystem__directory_tree"
     ]
   }
 }
 ```
 
-### .claude/commands/analyze-project.md
+### commands/analyze-project.md
 
-`/analyze-project` カスタムスラッシュコマンドの定義ファイル。このコマンドを実行すると、プロジェクト構造をスキャンして `docs/CODEBASE_MAP.md` を更新する。
-
-**コマンドの役割**:
-- プロジェクトのディレクトリツリーを出力
-- 各ファイルの役割を表形式でまとめ
-- セキュリティ・コンプライアンスチェック
-- 変更点の追跡
+`/analyze-project` カスタムコマンドの定義。このコマンドを実行すると、プロジェクト構造をスキャンして本ファイルを更新する。
 
 ---
 
-## 各ファイルの詳細解説
+## 4. 各ファイルの詳細解説
 
-### pyproject.toml
+### src/midas/main.py
 
-**役割**: プロジェクトのメタデータ、依存関係、ビルド設定を定義
+**役割**: CLI エントリーポイント。全てのコマンドを処理
 
-| 設定項目 | 値 | 説明 |
-|----------|-----|------|
-| `name` | `midas` | パッケージ名 |
-| `version` | `0.1.0` | 現在のバージョン |
-| `requires-python` | `>=3.11` | Python 3.11 以上が必要 |
-| `build-backend` | `hatchling` | ビルドツール |
+**データフロー**:
+```
+┌─────────────┐      ┌─────────────┐      ┌─────────────┐
+│   CLI       │ ───► │  argparse   │ ───► │  サブコマンド │
+│ $ midas ... │      │  パース     │      │  実行        │
+└─────────────┘      └─────────────┘      └─────────────┘
+                                                 │
+                     ┌───────────────────────────┼───────────────────────────┐
+                     ▼                           ▼                           ▼
+              ┌─────────────┐            ┌─────────────┐            ┌─────────────┐
+              │   collect   │            │   analyze   │            │  portfolio  │
+              │  ニュース収集 │            │  企業分析   │            │ ポートフォリオ│
+              └─────────────┘            └─────────────┘            └─────────────┘
+```
 
-**依存ライブラリ**:
-| ライブラリ | バージョン | 用途 |
-|-----------|-----------|------|
-| `langgraph` | >= 0.2 | エージェントワークフロー構築 |
-| `langchain-google-genai` | >= 2.0 | Gemini API 連携 |
-| `feedparser` | >= 6.0 | RSS フィードパース |
-| `httpx` | >= 0.27 | 非同期 HTTP クライアント |
-| `python-dotenv` | >= 1.0 | 環境変数読み込み |
-| `pydantic` | >= 2.0 | データバリデーション |
+**CLI コマンド一覧**:
+
+| コマンド | 説明 | 例 |
+|----------|------|-----|
+| `collect` | ニュース収集 | `midas collect --source=us-gov` |
+| `screen` | 株式スクリーニング | `midas screen --timeframe=week` |
+| `analyze` | 企業分析 | `midas analyze AAPL --mode=full` |
+| `portfolio show` | ポートフォリオ表示 | `midas portfolio show` |
+| `portfolio import` | CSV インポート | `midas portfolio import --file=holdings.csv` |
+| `portfolio add` | 手動追加 | `midas portfolio add AAPL 10 150` |
+| `portfolio update` | 価格更新 | `midas portfolio update` |
+| `portfolio analyze` | LLM 分析 | `midas portfolio analyze` |
+| `insight` | 未来洞察生成 | `midas insight --days=7` |
+| `find-companies` | 重要企業発見 | `midas find-companies "EV will dominate"` |
 
 ---
 
 ### src/midas/config.py
 
-**役割**: アプリケーション全体の設定を一元管理
+**役割**: アプリケーション設定の一元管理
 
-**データフロー**:
-```
-.env ファイル → dotenv.load_dotenv() → 環境変数 → config モジュール
-```
-
-**定義内容**:
+**定義変数**:
 
 | 変数 | 型 | 説明 |
 |------|-----|------|
-| `GEMINI_API_KEY` | `str \| None` | Gemini API キー（.env から読み込み） |
-| `PROJECT_ROOT` | `Path` | プロジェクトルートディレクトリ |
-| `DATA_DIR` | `Path` | データ保存ディレクトリ（`data/`） |
-| `NEWS_DIR` | `Path` | ニュース保存ディレクトリ（`data/news/`） |
-| `RSS_SOURCES` | `dict` | RSS ソース定義（後述） |
-| `LLM_MODEL` | `str` | 使用する LLM モデル名（`gemini-2.5-flash`） |
+| `GEMINI_API_KEY` | `str \| None` | Gemini API キー |
+| `PROJECT_ROOT` | `Path` | プロジェクトルート |
+| `DATA_DIR` | `Path` | データ保存ディレクトリ |
+| `NEWS_DIR` | `Path` | ニュース保存ディレクトリ |
+| `LLM_MODEL` | `str` | 使用モデル（`gemini-3-flash-preview`） |
 | `LLM_MAX_TOKENS` | `int` | 最大トークン数（4096） |
-
-**RSS_SOURCES の構造**:
-```python
-RSS_SOURCES = {
-    "source_key": {
-        "name": "表示名",
-        "url": "RSS フィード URL",
-        "description": "ソースの説明"
-    }
-}
-```
-
-**登録済み RSS ソース**:
-| キー | 名前 | URL | 説明 |
-|------|------|-----|------|
-| `whitehouse` | White House | `https://www.whitehouse.gov/feed/` | ホワイトハウス公式発表 |
-| `congress_bills` | Congress - Bills | `https://www.congress.gov/rss/bill-status-all.xml` | 議会法案ステータス |
-| `federal_register` | Federal Register | `https://www.federalregister.gov/documents/current.rss` | 連邦規則・公告 |
-| `sec_news` | SEC News | `https://www.sec.gov/news/pressreleases.rss` | SEC プレスリリース |
-| `ustr` | US Trade Representative | `https://ustr.gov/.../press-releases/rss` | 通商代表部発表 |
 
 ---
 
 ### src/midas/models.py
 
-**役割**: アプリケーション全体で使用するデータ構造を Pydantic モデルで定義
+**役割**: 全データモデルを Pydantic で定義
 
-#### NewsCategory (Enum)
+#### ニュース関連モデル
 
-ニュースの分類カテゴリ。LLM がニュースを分析する際に使用。
+| モデル | 説明 |
+|--------|------|
+| `NewsCategory` | ニュースカテゴリ Enum（legislation, regulation, policy, etc.） |
+| `NewsItem` | 単一ニュース記事 |
+| `NewsCollection` | ニュースコレクション |
 
-| 値 | 説明 | 例 |
-|----|------|-----|
-| `legislation` | 法案 | 新しい法律の制定・改正 |
-| `regulation` | 規制 | 規制当局による新ルール |
-| `policy` | 政策 | 政府の政策発表 |
-| `executive_order` | 大統領令 | 大統領による行政命令 |
-| `trade` | 通商 | 関税、貿易協定 |
-| `technology` | 技術政策 | 技術規制、産業政策 |
-| `other` | その他 | 上記に該当しないもの |
+#### 企業分析モデル
 
-#### NewsItem
+| モデル | 説明 |
+|--------|------|
+| `StockMovement` | 株価変動 |
+| `PriceEvent` | 重要な株価イベント |
+| `CompanyNews` | 企業関連ニュース |
+| `PriceEventAnalysis` | 株価イベント分析結果 |
+| `NegativeInfo` | ネガティブ情報 |
+| `CompanyAnalysis` | 企業総合分析 |
 
-単一のニュース記事を表すモデル。
+#### ポートフォリオ管理モデル
 
-| フィールド | 型 | 必須 | 説明 |
-|------------|-----|------|------|
-| `id` | `str` | ✅ | URL の MD5 ハッシュ（先頭12文字） |
-| `title` | `str` | ✅ | 記事タイトル |
-| `source` | `str` | ✅ | ソースキー（例: `whitehouse`） |
-| `url` | `str` | ✅ | 元記事の URL |
-| `published` | `datetime` | ✅ | 公開日時 |
-| `content` | `str` | - | 記事本文または概要 |
-| `summary` | `str \| None` | - | LLM 生成の要約（将来実装） |
-| `is_structural` | `bool` | - | 構造変化に関連するか（デフォルト: False） |
-| `category` | `NewsCategory \| None` | - | ニュースカテゴリ |
-| `relevance_reason` | `str \| None` | - | LLM が判定した関連性の理由 |
+| モデル | 説明 |
+|--------|------|
+| `AccountType` | 口座種別 Enum（一般、特定、NISA 等） |
+| `StockHolding` | 保有銘柄 |
+| `Transaction` | 取引記録 |
+| `Portfolio` | ポートフォリオ全体 |
 
-#### NewsCollection
+#### 未来洞察モデル
 
-ニュースのコレクション。バッチ処理時に使用（現在未使用）。
+| モデル | 説明 |
+|--------|------|
+| `SignalCategory` | シグナルカテゴリ Enum |
+| `TimeHorizon` | 時間軸 Enum（near, medium, long） |
+| `FutureSignal` | 未来シグナル |
+| `Beneficiary` | 受益者 |
+| `InvestmentTheme` | 投資テーマ |
+| `FutureInsightReport` | 未来洞察レポート |
+
+#### 予測分析モデル
+
+| モデル | 説明 |
+|--------|------|
+| `CriticalComponent` | 重要コンポーネント |
+| `CriticalCompany` | 重要企業 |
+| `FuturePredictionAnalysis` | 予測分析結果 |
 
 ---
 
-### src/midas/tools/rss_fetcher.py
+## 5. エージェント/ワークフロー
 
-**役割**: RSS フィードを取得して `NewsItem` オブジェクトに変換するツール
+### 共通アーキテクチャ
 
-**データフロー**:
+全エージェントは LangGraph の `StateGraph` を使用した同様の構造:
+
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                         rss_fetcher.py                              │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                     │
-│  config.RSS_SOURCES                                                 │
-│       │                                                             │
-│       ▼                                                             │
-│  ┌─────────────┐    HTTP GET     ┌──────────────┐                   │
-│  │ source_key  │ ──────────────► │  RSS URL     │                   │
-│  │ (whitehouse)│    (httpx)      │ (外部サーバー)│                   │
-│  └─────────────┘                 └──────┬───────┘                   │
-│                                         │                           │
-│                                         ▼ XML/RSS                   │
-│                                  ┌──────────────┐                   │
-│                                  │  feedparser  │                   │
-│                                  │  .parse()    │                   │
-│                                  └──────┬───────┘                   │
-│                                         │                           │
-│                                         ▼ feed.entries              │
-│                                  ┌──────────────┐                   │
-│                                  │ 各エントリを │                   │
-│                                  │ NewsItem に  │                   │
-│                                  │ 変換         │                   │
-│                                  └──────┬───────┘                   │
-│                                         │                           │
-│                                         ▼                           │
-│                               list[NewsItem]                        │
-│                                                                     │
-└─────────────────────────────────────────────────────────────────────┘
+┌─────────┐      ┌─────────┐      ┌─────────┐      ┌─────┐
+│  fetch  │ ───► │ filter/ │ ───► │  save   │ ───► │ END │
+│ (取得)  │      │ analyze │      │ (保存)  │      │     │
+└─────────┘      └─────────┘      └─────────┘      └─────┘
 ```
+
+### ニュース監視エージェント（4種）
+
+| エージェント | ソース | 保存先 |
+|-------------|--------|--------|
+| `us_gov_news_watcher` | White House, Congress, Federal Register, SEC, USTR | `data/us_gov/` |
+| `tech_news_watcher` | Ars Technica, TechCrunch, Verge, Wired, MIT Tech Review, etc. | `data/tech/` |
+| `other_gov_news_watcher` | EU, UK, China, Japan, IMF, World Bank | `data/other_gov/` |
+| `general_news_watcher` | Yahoo Finance, MarketWatch, Bloomberg, Reuters, etc. | `data/general/` |
+
+**ワークフロー**:
+```
+┌─────────────┐      ┌──────────────┐      ┌───────────┐      ┌─────┐
+│ fetch_news  │ ───► │ filter_news  │ ───► │   save    │ ───► │ END │
+│ (RSS取得)   │      │ (LLMで判定)   │      │ (JSON保存)│      │     │
+└─────────────┘      └──────────────┘      └───────────┘      └─────┘
+```
+
+**AgentState**:
+```python
+class AgentState(TypedDict):
+    raw_items: list[NewsItem]
+    filtered_items: list[NewsItem]
+    saved_path: str | None
+    error: str | None
+```
+
+### price_event_analyzer
+
+**役割**: 株価の大きな変動（±5%以上）を検出し、原因を分析
+
+**ワークフロー**:
+```
+┌──────────────┐      ┌──────────────┐      ┌─────────────┐      ┌──────┐      ┌─────┐
+│ fetch_prices │ ───► │ fetch_news   │ ───► │   analyze   │ ───► │ save │ ───► │ END │
+│ (yfinance)   │      │ (Google News)│      │ (LLM分析)   │      │      │      │     │
+└──────────────┘      └──────────────┘      └─────────────┘      └──────┘      └─────┘
+```
+
+### negative_info_watcher（企業分析エージェント）
+
+**役割**: 企業の総合分析（リスク情報、ニュース、財務状況など）
+
+**ワークフロー**:
+```
+┌────────────┐      ┌────────────┐      ┌─────────┐      ┌───────────┐      ┌──────┐      ┌─────┐
+│ fetch_info │ ───► │ pre_filter │ ───► │ analyze │ ───► │ summarize │ ───► │ save │ ───► │ END │
+│ (yfinance) │      │ (キーワード)│      │ (LLM)   │      │ (総合評価) │      │      │      │     │
+└────────────┘      └────────────┘      └─────────┘      └───────────┘      └──────┘      └─────┘
+```
+
+### portfolio_analyzer
+
+**役割**: ポートフォリオを読み込み、LLM で分析・レコメンド
+
+**ワークフロー**:
+```
+┌──────┐      ┌───────────────┐      ┌─────────┐      ┌──────┐      ┌─────┐
+│ load │ ───► │ update_prices │ ───► │ analyze │ ───► │ save │ ───► │ END │
+└──────┘      └───────────────┘      └─────────┘      └──────┘      └─────┘
+```
+
+### future_insight_agent
+
+**役割**: 収集したニュースから未来シグナルと投資テーマを抽出
+
+**ワークフロー**:
+```
+┌─────────┐      ┌─────────────────┐      ┌──────────────────┐      ┌─────────────────┐      ┌──────┐      ┌─────┐
+│ collect │ ───► │ extract_signals │ ───► │ synthesize_themes│ ───► │ generate_report │ ───► │ save │ ───► │ END │
+└─────────┘      └─────────────────┘      └──────────────────┘      └─────────────────┘      └──────┘      └─────┘
+```
+
+### critical_company_finder
+
+**役割**: 未来予測に基づき、重要な企業を特定
+
+**ワークフロー**:
+```
+┌────────────────┐      ┌──────────────────┐      ┌──────┐      ┌─────┐
+│ search_context │ ───► │ analyze_and_find │ ───► │ save │ ───► │ END │
+│ (Google News)  │      │ (LLM分析)         │      │      │      │     │
+└────────────────┘      └──────────────────┘      └──────┘      └─────┘
+```
+
+---
+
+## 6. ツール群
+
+### rss_fetcher.py
+
+**役割**: RSS フィード取得と重複検出
 
 **主要関数**:
 
 | 関数 | 引数 | 戻り値 | 説明 |
 |------|------|--------|------|
-| `_generate_id(url)` | `str` | `str` | URL から一意の ID を生成（MD5 先頭12文字） |
-| `_parse_published(entry)` | `dict` | `datetime` | RSS エントリから公開日時を抽出 |
-| `_parse_content(entry)` | `dict` | `str` | RSS エントリから本文を抽出（content > summary > description の優先順） |
-| `fetch_rss(source_key)` | `str` | `list[NewsItem]` | 単一ソースから RSS を取得 |
-| `fetch_all_sources()` | なし | `list[NewsItem]` | 全ソースから RSS を取得して結合 |
+| `fetch_single_feed` | feed, fetched_ids | `list[NewsItem]` | 単一 RSS フィード取得 |
+| `fetch_feeds` | feeds, cache_file | `list[NewsItem]` | 複数フィード取得（重複排除） |
+| `load_fetched_ids` | cache_file | `set[str]` | キャッシュ読み込み |
+| `save_fetched_ids` | cache_file, ids | None | キャッシュ保存 |
 
-**エラーハンドリング**:
-- HTTP エラー: `httpx.HTTPStatusError` を発生
-- 日付パースエラー: 現在時刻をフォールバック
-- 個別ソースのエラー: ログ出力して継続（他ソースは処理続行）
+### stock_screener.py
+
+**役割**: FINVIZ を使った株式スクリーニング
+
+**主要関数**:
+
+| 関数 | 引数 | 戻り値 | 説明 |
+|------|------|--------|------|
+| `screen_movers` | timeframe, min_change, direction, etc. | `list[StockMovement]` | 急騰/急落銘柄検索 |
+| `screen_all_performance` | timeframe, max_results | `list[StockMovement]` | 全銘柄パフォーマンス取得 |
+| `format_movements` | movements | `str` | 結果フォーマット |
+
+**TimeFrame Enum**:
+- `day`, `week`, `month`, `quarter`, `half`, `year`, `ytd`
+
+### portfolio_manager.py
+
+**役割**: ポートフォリオの永続化・価格更新・CSV インポート
+
+**主要関数**:
+
+| 関数 | 引数 | 戻り値 | 説明 |
+|------|------|--------|------|
+| `load_portfolio` | - | `Portfolio` | ポートフォリオ読み込み |
+| `save_portfolio` | portfolio | `Path` | ポートフォリオ保存 |
+| `fetch_current_price` | symbol | `float \| None` | 株価取得（yfinance） |
+| `update_portfolio_prices` | portfolio | `Portfolio` | 全銘柄価格更新 |
+| `import_from_csv` | csv_path, broker | `list[StockHolding]` | CSV インポート |
+| `generate_portfolio_report` | portfolio | `str` | レポート生成 |
+
+### company_news_fetcher.py
+
+**役割**: Google News RSS から企業関連ニュースを取得
+
+**主要関数**:
+
+| 関数 | 引数 | 戻り値 | 説明 |
+|------|------|--------|------|
+| `fetch_company_news` | query, days_back | `list[CompanyNews]` | 企業ニュース取得 |
+| `fetch_news_around_date` | query, target_date | `list[CompanyNews]` | 特定日付周辺のニュース取得 |
+| `search_topic_news` | topic, keywords | `list[dict]` | トピック検索 |
 
 ---
 
-### src/midas/agents/us_gov_news.py
+## 7. 外部連携
 
-**役割**: LangGraph を使った米国政府ニュース収集・フィルタリングエージェント
+| 連携先 | URL/API | 用途 |
+|--------|---------|------|
+| Google Gemini | Gemini API | LLM による分析・フィルタリング |
+| yfinance | Yahoo Finance | 株価・企業情報取得 |
+| FINVIZ | finvizfinance | 株式スクリーニング |
+| Google News RSS | news.google.com | 企業ニュース取得 |
+| 各種政府 RSS | 各政府機関 | ニュース収集 |
 
-**データフロー**:
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                       us_gov_news.py                                │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                     │
-│  ┌─────────┐      ┌──────────┐      ┌────────┐      ┌─────┐        │
-│  │  fetch  │ ───► │  filter  │ ───► │  save  │ ───► │ END │        │
-│  └────┬────┘      └────┬─────┘      └────┬───┘      └─────┘        │
-│       │                │                 │                          │
-│       ▼                ▼                 ▼                          │
-│  rss_fetcher     Gemini LLM        JSON ファイル                    │
-│  .fetch_all()    で判定            data/news/                       │
-│                                    us_gov_YYYYMMDD_HHMMSS.json     │
-│                                                                     │
-└─────────────────────────────────────────────────────────────────────┘
-```
+---
 
-**AgentState（状態管理）**:
-```python
-class AgentState(TypedDict):
-    raw_items: list[NewsItem]      # fetch で取得した全ニュース
-    filtered_items: list[NewsItem] # filter で抽出した構造変化ニュース
-    saved_path: str | None         # save で保存したファイルパス
-    error: str | None              # エラーメッセージ（あれば）
-```
+## 8. 出力データ形式
 
-**各ノードの処理**:
+### ニュース（data/*/raw_*.json）
 
-#### 1. fetch_news（取得ノード）
-- **入力**: 空の `AgentState`
-- **処理**: `rss_fetcher.fetch_all_sources()` を呼び出し
-- **出力**: `raw_items` にニュースリストをセット
-- **エラー時**: `error` にメッセージをセット
-
-#### 2. filter_news（フィルタリングノード）
-- **入力**: `raw_items` に格納されたニュースリスト
-- **処理**:
-  1. 各ニュースを Gemini LLM に送信
-  2. システムプロンプトで「構造変化」の判定基準を指示
-  3. JSON 形式で `is_structural`, `category`, `reason` を取得
-  4. `is_structural: true` のニュースのみ抽出
-- **出力**: `filtered_items` にフィルタ済みリストをセット
-
-**LLM への指示（システムプロンプト要約）**:
-- 構造変化として判定するもの:
-  - 技術の実用化・廃止
-  - 規制・政策変更
-  - 通商政策変更
-  - 政府の産業政策
-  - 競争環境の変化
-- 無視するもの:
-  - 短期的な市場変動
-  - 四半期決算
-  - 人事異動（大企業 CEO 除く）
-  - ルーティンの規制申請
-  - オピニオン記事
-
-#### 3. save_results（保存ノード）
-- **入力**: `filtered_items`
-- **処理**:
-  1. タイムスタンプ付きファイル名を生成
-  2. JSON 形式でシリアライズ
-  3. `data/news/us_gov_YYYYMMDD_HHMMSS.json` に保存
-- **出力**: `saved_path` にファイルパスをセット
-
-**保存される JSON 構造**:
 ```json
 {
-  "fetched_at": "2024-01-01T12:00:00",
-  "total_raw": 150,
-  "total_filtered": 12,
+  "fetched_at": "2026-01-03T12:00:00",
+  "total": 50,
   "items": [
     {
-      "id": "abc123def456",
+      "id": "abc123",
       "title": "...",
       "source": "whitehouse",
       "url": "...",
       "published": "...",
-      "content": "...",
-      "is_structural": true,
-      "category": "policy",
-      "relevance_reason": "..."
+      "content": "..."
     }
   ]
 }
 ```
 
+### ポートフォリオ（data/portfolio/portfolio.json）
+
+```json
+{
+  "name": "Main Portfolio",
+  "holdings": [
+    {
+      "symbol": "7203",
+      "name": "トヨタ自動車",
+      "shares": 100,
+      "avg_cost": 2500.0,
+      "current_price": 3356.0,
+      "account_type": "specific",
+      "broker": "manual"
+    }
+  ],
+  "transactions": [],
+  "updated_at": "2026-01-03T14:01:18",
+  "cash_balance": 0.0
+}
+```
+
 ---
 
-### src/midas/main.py
+## 9. CLI 使用例
 
-**役割**: CLI エントリーポイント。ユーザーからのコマンドを受け付けて処理を実行
-
-**データフロー**:
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                           main.py                                   │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                     │
-│  $ midas collect --source=us-gov                                    │
-│       │                                                             │
-│       ▼                                                             │
-│  ┌─────────────┐                                                    │
-│  │ argparse    │  コマンドライン引数をパース                         │
-│  └──────┬──────┘                                                    │
-│         │                                                           │
-│         ▼                                                           │
-│  ┌─────────────┐                                                    │
-│  │ print_banner│  バナー表示                                         │
-│  └──────┬──────┘                                                    │
-│         │                                                           │
-│         ▼                                                           │
-│  ┌──────────────────┐                                               │
-│  │ collect_us_news()│  us_gov_news.run_agent() を呼び出し           │
-│  └──────┬───────────┘                                               │
-│         │                                                           │
-│         ▼                                                           │
-│  結果を整形して標準出力に表示                                        │
-│  - フィルタされたニュース数                                          │
-│  - 各ニュースのタイトル・カテゴリ・理由                              │
-│  - 保存先ファイルパス                                                │
-│                                                                     │
-└─────────────────────────────────────────────────────────────────────┘
-```
-
-**CLI コマンド**:
 ```bash
-# 米国政府ニュース収集
+# インストール
+pip install -e .
+
+# ニュース収集（全ソース）
+midas collect --source=all
+
+# 米国政府ニュースのみ
 midas collect --source=us-gov
 
-# ヘルプ表示
-midas --help
-midas collect --help
-```
+# 週間急騰銘柄スクリーニング
+midas screen --timeframe=week --min-change=20 --direction=up
 
-**出力例**:
-```
-╔═══════════════════════════════════════════════════════════════╗
-║  Midas - Investment Decision Support Agent                   ║
-║  "Identifying structural changes for long-term investors"    ║
-╚═══════════════════════════════════════════════════════════════╝
+# 企業分析（価格イベント + リスク）
+midas analyze AAPL --mode=full
 
-Starting US Government News Collection...
---------------------------------------------------
-Fetching news from RSS sources...
-  Fetched 50 items from whitehouse
-  Fetched 100 items from congress_bills
-  ...
-Filtering news with LLM...
-  [+] New Trade Policy Announced...
-  [+] Technology Export Controls Updated...
-Filtered: 12 structural news items
-Saving results...
-Saved to: data/news/us_gov_20240101_120000.json
---------------------------------------------------
+# ポートフォリオ管理
+midas portfolio show
+midas portfolio import --file=holdings.csv
+midas portfolio update
+midas portfolio analyze
 
-=== Found 12 structural news items ===
+# 未来洞察
+midas insight --days=7
 
-[policy] New Trade Policy Announced
-    Reason: Major shift in trade relations affecting supply chains
-    URL: https://...
+# 重要企業発見
+midas find-companies "AI will replace software developers"
 ```
 
 ---
 
-### src/midas/__main__.py
-
-**役割**: `python -m midas` で実行可能にするためのエントリーポイント
-
-```python
-from midas.main import main
-
-if __name__ == "__main__":
-    main()
-```
-
----
-
-### src/midas/__init__.py
-
-**役割**: パッケージ初期化。バージョン情報を定義。
-
-```python
-__version__ = "0.1.0"
-```
-
----
-
-## 技術スタック
+## 10. 技術スタック
 
 | カテゴリ | 技術 | 用途 |
 |----------|------|------|
 | 言語 | Python 3.11+ | メイン言語 |
 | エージェント | LangGraph | ワークフロー構築 |
-| LLM | Gemini 2.5 Flash | ニュースフィルタリング |
-| HTTP | httpx | 非同期 HTTP リクエスト |
+| LLM | Gemini 3 Flash | ニュースフィルタリング・分析 |
+| HTTP | httpx | 非同期 HTTP クライアント |
 | RSS | feedparser | RSS/Atom パース |
+| 株価 | yfinance | 株価・企業情報取得 |
+| スクリーニング | finvizfinance | FINVIZ データ取得 |
 | データモデル | Pydantic | バリデーション・シリアライズ |
 | 設定 | python-dotenv | 環境変数管理 |
 | ビルド | Hatchling | パッケージビルド |
@@ -452,62 +463,39 @@ __version__ = "0.1.0"
 
 ---
 
-## セキュリティ & コンプライアンス
+## 11. セキュリティ & コンプライアンス
 
 ### Credentials Check
 
 | ファイル | 状態 | 説明 |
 |----------|------|------|
-| `.env` | ✅ .gitignore で除外 | API キーを格納。Git 管理外 |
-| `.env.example` | ✅ 安全 | テンプレートのみ、実際の値なし |
+| `.env` | .gitignore で除外 | API キー格納 |
+| `data/` | .gitignore で除外 | ユーザーデータ |
 
 ### License Check
 
-- `LICENSE` ファイル: **未設定**（要追加）
+- `LICENSE` ファイル: **未設定**
 
 ---
 
-## 使い方
+## 12. 実装状況
 
-```bash
-# インストール
-pip install -e .
+### 実装済み
 
-# 環境変数設定
-cp .env.example .env
-# .env に GEMINI_API_KEY を設定
-
-# 米国政府ニュース収集
-midas collect --source=us-gov
-```
-
----
-
-## 実装状況
-
-### 実装済み ✅
-
-- プロジェクト構造のセットアップ
-- 米国政府ニュース収集エージェント
-  - RSS フィード取得（5 ソース）
-  - LLM による構造変化の判定・フィルタリング
-  - JSON ファイルへの保存
-- Claude Code カスタムコマンド（/analyze-project）
-
-### 未実装（Phase 1）
-
-- 株価データ収集
-- 基本的な企業分析機能
-- CLI でのレポート出力
-
-### 未実装（Phase 2）
-
-- その他ニュースソース（新技術ウォッチ等）
-- 情報選別フィルタリングの強化
-- PostgreSQL でのデータ永続化
+- ニュース監視エージェント（4種類）
+  - 米国政府、技術、その他政府、一般
+- 企業分析エージェント
+  - 株価イベント分析
+  - 企業総合分析（リスク・ニュース・財務）
+- ポートフォリオ管理
+  - CSV インポート
+  - 価格更新
+  - LLM 分析
+- 未来洞察エージェント
+- 重要企業発見エージェント
+- 株式スクリーニング（FINVIZ）
 
 ### 未実装（Phase 3）
 
-- 株価急変事例の収集・分析
-- 知見のフィードバックループ
-- 通知機能（Slack / LINE）
+- [ ] 株価急変事例の自動学習
+- [ ] 知見のフィードバックループ

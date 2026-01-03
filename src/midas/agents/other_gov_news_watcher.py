@@ -8,7 +8,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import END, StateGraph
 
-from midas.config import DATA_DIR, GEMINI_API_KEY, LLM_MODEL
+from midas.config import extract_llm_text, DATA_DIR, GEMINI_API_KEY, LLM_MODEL
 from midas.models import NewsCategory, NewsItem
 from midas.tools.rss_fetcher import fetch_feeds
 
@@ -174,7 +174,7 @@ async def filter_news(state: AgentState) -> AgentState:
             ]
 
             response = await llm.ainvoke(messages)
-            result_text = response.content
+            result_text = extract_llm_text(response.content)
 
             if isinstance(result_text, str):
                 start = result_text.find("{")
