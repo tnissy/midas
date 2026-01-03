@@ -311,19 +311,19 @@
 
 ### 6.3 エージェント一覧
 
-| エージェント | 役割 | 入力 | 出力 |
-|------------|------|------|------|
-| **tech_news_watcher** | テクノロジー情報収集 | RSS Feeds | 構造変化ニュース |
-| **us_gov_watcher** | 米国政府情報収集 | RSS Feeds | 構造変化ニュース |
-| **other_gov_watcher** | 他国政府情報収集 | RSS Feeds | 構造変化ニュース |
-| **general_news_watcher** | 一般ニュース収集 | RSS Feeds | 構造変化ニュース |
-| **prediction_monitor** | 年次社会変化分析 | Google News | 社会変化レポート |
-| **forsight_manager** | 未来シグナル抽出 | 収集ニュース | 投資テーマ/シグナル |
-| **foresight_to_company_translator** | 重要企業特定 | 未来予測テキスト | バリューチェーン/企業リスト |
-| **company_watcher** | 企業分析 | 企業シンボル | リスクレポート |
-| **price_event_analyzer** | 株価変動原因分析 | 企業シンボル | 価格イベント分析 |
-| **portfolio_manager** | ポートフォリオ分析 | 保有銘柄データ | 投資提案/リスク評価 |
-| **model_calibration_agent** | 株価急変からの学習 | 期間指定 | 学習事例/知見 |
+| エージェント | 役割       | 使用ツール | 主な入力元 | 主な出力先 | 備考 |
+|------------|-----------|-----------|-----------|-----------|------|
+| **forsight_manager** | 未来予測の管理 | | *_watcher（4種）, prediction_monitor | foresight_to_company_translator |  |
+| **tech_news_watcher** | テクノロジー情報収集 | RSS Fetcher, LLM | forsight_manager, | forsight_manager | Ars Technica, TechCrunch, Wired, MIT Tech Review 等 |
+| **us_gov_watcher** | 米国政府情報収集 | RSS Fetcher,  LLM | forsight_manager, | forsight_manager,  | White House, Congress, Federal Register, SEC, USTR |
+| **other_gov_watcher** | 他国政府情報収集 | RSS Fetcher,  LLM | forsight_manager, | forsight_manager,  | EU, UK, 中国, 日本, IMF, World Bank 等 |
+| **general_news_watcher** | 一般ニュース収集 | RSS Fetcher,  LLM | forsight_manager, | forsight_manager,  | Yahoo Finance, Bloomberg, Reuters, CNBC 等 |
+| **prediction_monitor** | 社会変化分析 | Google News RSS, LLM | forsight_manager | forsight_manager | McKinsey, BCG, WEF 等の年次展望記事をスキャン |
+| **foresight_to_company_translator** | 重要企業特定 |  LLM（3段階分析） | prediction_monitor | company_watcher, portfolio_manager | バリューチェーン分解→企業特定→ボトルネック分析 |
+| **company_watcher** | 企業調査 | yfinance, Company News Fetcher,  LLM | foresight_to_company_translator, portfolio_manager, CLI | portfolio_manager | 訴訟・不正・規制・ダウングレード等の負情報を監視 |
+| **price_event_analyzer** | 株価変動原因分析 | yfinance, Company News Fetcher, Gemini LLM | portfolio_manager, CLI | model_calibration_agent | ±5%以上の値動きを検出し原因を分析 |
+| **portfolio_manager** | ポートフォリオ分析 | Portfolio Manager Tool, yfinance, Gemini LLM | portfolio.json, company_watcher | company_watcher, price_event_analyzer | 保有銘柄の健全性・集中度・分散を評価 |
+| **model_calibration_agent** | 株価急変からの学習 | Stock Screener, yfinance, Company News Fetcher, Gemini LLM | price_event_analyzer, Stock Screener | 全エージェント（知見フィードバック） | 3x上昇/1/3下落の極端な値動きから構造変化パターンを学習 |
 
 
 ### 6.4 CLI コマンドとエージェントの対応
