@@ -1,4 +1,4 @@
-"""Critical Company Finder - Identifies companies critical to realizing future predictions.
+"""Foresight to Company Translator - Identifies companies critical to realizing future predictions.
 
 Uses a multi-step value chain analysis approach:
 1. Decompose prediction into value chain layers

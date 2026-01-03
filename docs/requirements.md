@@ -302,9 +302,9 @@
 │  ───────────────────────────────────────────────────────────────  │
 │                                                                    │
 │  [未来展望フロー]                                                  │
-│  Farseer → 年次展望記事スキャン → 社会変化の検出                   │
+│  prediction_monitor → 年次展望記事スキャン → 社会変化の検出        │
 │                 ↓                                                  │
-│          Critical Company Finder (展望に基づく企業探索)            │
+│       foresight_to_company_translator (展望に基づく企業探索)       │
 │                                                                    │
 └────────────────────────────────────────────────────────────────────┘
 ```
@@ -313,45 +313,46 @@
 
 | エージェント | 役割 | 入力 | 出力 |
 |------------|------|------|------|
-| **us_gov_news_watcher** | 米国政府情報収集 | RSS Feeds | 構造変化ニュース |
 | **tech_news_watcher** | テクノロジー情報収集 | RSS Feeds | 構造変化ニュース |
-| **other_gov_news_watcher** | 他国政府情報収集 | RSS Feeds | 構造変化ニュース |
+| **us_gov_watcher** | 米国政府情報収集 | RSS Feeds | 構造変化ニュース |
+| **other_gov_watcher** | 他国政府情報収集 | RSS Feeds | 構造変化ニュース |
 | **general_news_watcher** | 一般ニュース収集 | RSS Feeds | 構造変化ニュース |
-| **future_insight_agent** | 未来シグナル抽出 | 収集ニュース | 投資テーマ/シグナル |
-| **farseer** | 年次社会変化分析 | Google News | 社会変化レポート |
-| **critical_company_finder** | 重要企業特定 | 未来予測テキスト | バリューチェーン/企業リスト |
-| **negative_info_watcher** | ネガティブ情報監視 | 企業シンボル | リスクレポート |
+| **prediction_monitor** | 年次社会変化分析 | Google News | 社会変化レポート |
+| **forsight_manager** | 未来シグナル抽出 | 収集ニュース | 投資テーマ/シグナル |
+| **foresight_to_company_translator** | 重要企業特定 | 未来予測テキスト | バリューチェーン/企業リスト |
+| **company_watcher** | 企業分析 | 企業シンボル | リスクレポート |
 | **price_event_analyzer** | 株価変動原因分析 | 企業シンボル | 価格イベント分析 |
-| **portfolio_analyzer** | ポートフォリオ分析 | 保有銘柄データ | 投資提案/リスク評価 |
-| **learning_agent** | 株価急変からの学習 | 期間指定 | 学習事例/知見 |
+| **portfolio_manager** | ポートフォリオ分析 | 保有銘柄データ | 投資提案/リスク評価 |
+| **model_calibration_agent** | 株価急変からの学習 | 期間指定 | 学習事例/知見 |
+
 
 ### 6.4 CLI コマンドとエージェントの対応
 
 ```bash
 # データ収集
-midas collect --source all          # 全News Watcher実行
-midas collect --source us-gov       # US Gov News Watcher
-midas collect --source tech         # Tech News Watcher
+midas collect --source all          # 全 News Watcher 実行
+midas collect --source us-gov       # us_gov_watcher
+midas collect --source tech         # tech_news_watcher
 
 # 未来洞察
-midas insight --days 7              # Future Insight Agent
+midas insight --days 7              # forsight_manager
 
 # 年次展望
-midas farseer scan --year 2026      # Farseer
+midas prediction-monitor scan --year 2026  # prediction_monitor
 
 # 企業発見
-midas find-companies "EVが主流になる"  # Critical Company Finder
+midas find-companies "EVが主流になる"  # foresight_to_company_translator
 
 # 企業分析
-midas analyze AAPL --mode risk      # Negative Info Watcher
-midas analyze AAPL --mode price     # Price Event Analyzer
+midas analyze AAPL --mode risk      # company_watcher
+midas analyze AAPL --mode price     # price_event_analyzer
 midas analyze AAPL --mode full      # 両方実行
 
 # ポートフォリオ
-midas portfolio analyze             # Portfolio Analyzer
+midas portfolio analyze             # portfolio_manager
 
 # 学習
-midas learn scan --period month     # Learning Agent（急変事例スキャン）
+midas learn scan --period month     # model_calibration_agent（急変事例スキャン）
 midas learn insights                # 蓄積した知見の表示
 midas learn cases                   # 分析済み事例の表示
 ```

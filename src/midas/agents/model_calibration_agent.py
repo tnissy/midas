@@ -1,4 +1,4 @@
-"""Learning Agent - Analyzes significant price movements to extract lessons.
+"""Model Calibration Agent - Analyzes significant price movements to extract lessons.
 
 This agent:
 1. Scans for stocks with extreme movements (3x or 1/3 in one month)

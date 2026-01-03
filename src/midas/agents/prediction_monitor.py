@@ -1,4 +1,4 @@
-"""Farseer - Future outlook and social change detector.
+"""Prediction Monitor - Future outlook and social change detector.
 
 This agent scans news sources for future predictions and structural changes,
 then analyzes them to identify investment themes and opportunities.
@@ -29,10 +29,10 @@ from midas.config import DATA_DIR, GEMINI_API_KEY, LLM_MODEL, extract_llm_text
 # Constants
 # =============================================================================
 
-FARSEER_DATA_DIR = DATA_DIR / "farseer"
-SOURCES_FILE = FARSEER_DATA_DIR / "sources.json"
-ARTICLES_DIR = FARSEER_DATA_DIR / "articles"
-REPORTS_DIR = FARSEER_DATA_DIR / "reports"
+PREDICTION_MONITOR_DATA_DIR = DATA_DIR / "prediction_monitor"
+SOURCES_FILE = PREDICTION_MONITOR_DATA_DIR / "sources.json"
+ARTICLES_DIR = PREDICTION_MONITOR_DATA_DIR / "articles"
+REPORTS_DIR = PREDICTION_MONITOR_DATA_DIR / "reports"
 
 
 # =============================================================================
@@ -112,7 +112,7 @@ def load_sources() -> dict:
 
 def save_sources(sources: dict) -> None:
     """Save sources configuration."""
-    FARSEER_DATA_DIR.mkdir(parents=True, exist_ok=True)
+    PREDICTION_MONITOR_DATA_DIR.mkdir(parents=True, exist_ok=True)
     with open(SOURCES_FILE, "w", encoding="utf-8") as f:
         json.dump(sources, f, ensure_ascii=False, indent=2)
 
@@ -443,7 +443,7 @@ def save_report(state: FarseerState) -> FarseerState:
 
     year = state.get("year", datetime.now().year)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filepath = REPORTS_DIR / f"farseer_{year}_{timestamp}.json"
+    filepath = REPORTS_DIR / f"prediction_monitor_{year}_{timestamp}.json"
 
     with open(filepath, "w", encoding="utf-8") as f:
         json.dump(state["report"], f, ensure_ascii=False, indent=2)

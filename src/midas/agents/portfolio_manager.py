@@ -1,4 +1,4 @@
-"""Portfolio Analyzer Agent using LangGraph.
+"""Portfolio Manager Agent using LangGraph.
 
 This agent analyzes the user's portfolio:
 - Updates current prices

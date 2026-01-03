@@ -1,4 +1,4 @@
-"""Other Government News Watcher (non-US) using LangGraph."""
+"""Other Government Watcher (non-US) using LangGraph."""
 
 import json
 from datetime import datetime

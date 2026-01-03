@@ -23,7 +23,7 @@ Midas/
 │   └── settings.local.json          # 権限設定
 ├── data/                            # データ保存ディレクトリ
 │   ├── company_analysis/            # 企業分析結果
-│   ├── future_insights/             # 未来洞察レポート（farseer/と同義）
+│   ├── future_insights/             # 未来洞察レポート（prediction_monitor/と同義）
 │   ├── general/                     # 一般ニュース
 │   ├── logs/                        # 実行ログ
 │   ├── news/                        # ニュースキャッシュ
@@ -43,15 +43,16 @@ Midas/
 │   ├── models.py                    # Pydantic データモデル
 │   ├── agents/                      # LangGraph エージェント群
 │   │   ├── __init__.py
-│   │   ├── us_gov_news_watcher.py   # 米国政府ニュース監視
+│   │   ├── us_gov_watcher.py        # 米国政府情報監視
 │   │   ├── tech_news_watcher.py     # 技術ニュース監視
-│   │   ├── other_gov_news_watcher.py # 米国以外政府ニュース監視
+│   │   ├── other_gov_watcher.py     # 米国以外政府情報監視
 │   │   ├── general_news_watcher.py  # 一般ニュース監視
 │   │   ├── price_event_analyzer.py  # 株価イベント分析
-│   │   ├── negative_info_watcher.py # 企業分析エージェント
-│   │   ├── portfolio_analyzer.py    # ポートフォリオ分析
-│   │   ├── future_insight_agent.py  # 未来洞察エージェント
-│   │   └── critical_company_finder.py # 重要企業発見
+│   │   ├── company_watcher.py       # 企業分析エージェント
+│   │   ├── portfolio_manager.py     # ポートフォリオ管理
+│   │   ├── prediction_monitor.py    # 年次社会変化分析
+│   │   ├── model_calibration_agent.py # 株価急変からの学習
+│   │   └── foresight_to_company_translator.py # 重要企業発見
 │   └── tools/                       # ツール群
 │       ├── __init__.py
 │       ├── rss_fetcher.py           # RSS フィード取得
@@ -214,9 +215,9 @@ Midas/
 
 | エージェント | ソース | 保存先 |
 |-------------|--------|--------|
-| `us_gov_news_watcher` | White House, Congress, Federal Register, SEC, USTR | `data/us_gov/` |
+| `us_gov_watcher` | White House, Congress, Federal Register, SEC, USTR | `data/us_gov/` |
 | `tech_news_watcher` | Ars Technica, TechCrunch, Verge, Wired, MIT Tech Review, etc. | `data/tech/` |
-| `other_gov_news_watcher` | EU, UK, China, Japan, IMF, World Bank | `data/other_gov/` |
+| `other_gov_watcher` | EU, UK, China, Japan, IMF, World Bank | `data/other_gov/` |
 | `general_news_watcher` | Yahoo Finance, MarketWatch, Bloomberg, Reuters, etc. | `data/general/` |
 
 **ワークフロー**:
@@ -248,7 +249,7 @@ class AgentState(TypedDict):
 └──────────────┘      └──────────────┘      └─────────────┘      └──────┘      └─────┘
 ```
 
-### negative_info_watcher（企業分析エージェント）
+### company_watcher（企業分析エージェント）
 
 **役割**: 企業の総合分析（リスク情報、ニュース、財務状況など）
 
@@ -260,7 +261,7 @@ class AgentState(TypedDict):
 └────────────┘      └────────────┘      └─────────┘      └───────────┘      └──────┘      └─────┘
 ```
 
-### portfolio_analyzer
+### portfolio_manager
 
 **役割**: ポートフォリオを読み込み、LLM で分析・レコメンド
 
@@ -282,7 +283,7 @@ class AgentState(TypedDict):
 └─────────┘      └─────────────────┘      └──────────────────┘      └─────────────────┘      └──────┘      └─────┘
 ```
 
-### critical_company_finder
+### foresight_to_company_translator
 
 **役割**: 未来予測に基づき、重要な企業を特定
 

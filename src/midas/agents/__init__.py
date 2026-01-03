@@ -1,27 +1,27 @@
 """Midas agents."""
 
 from midas.agents import (
-    critical_company_finder,
-    farseer,
+    company_watcher,
+    foresight_to_company_translator,
     general_news_watcher,
-    learning_agent,
-    negative_info_watcher,
-    other_gov_news_watcher,
-    portfolio_analyzer,
+    model_calibration_agent,
+    other_gov_watcher,
+    portfolio_manager,
+    prediction_monitor,
     price_event_analyzer,
     tech_news_watcher,
-    us_gov_news_watcher,
+    us_gov_watcher,
 )
 
 __all__ = [
-    "us_gov_news_watcher",
+    "us_gov_watcher",
     "tech_news_watcher",
-    "other_gov_news_watcher",
+    "other_gov_watcher",
     "general_news_watcher",
     "price_event_analyzer",
-    "negative_info_watcher",
-    "portfolio_analyzer",
-    "critical_company_finder",
-    "farseer",
-    "learning_agent",
+    "company_watcher",
+    "portfolio_manager",
+    "foresight_to_company_translator",
+    "prediction_monitor",
+    "model_calibration_agent",
 ]

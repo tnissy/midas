@@ -1,4 +1,4 @@
-"""Negative Information Watcher - Monitors companies for negative news and risks."""
+"""Company Watcher - Monitors companies for negative news and risks."""
 
 import json
 import logging
@@ -21,7 +21,7 @@ from midas.tools.company_news_fetcher import fetch_company_news
 LOG_DIR = DATA_DIR / "logs"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
-logger = logging.getLogger("negative_info_watcher")
+logger = logging.getLogger("company_watcher")
 logger.setLevel(logging.DEBUG)
 
 # =============================================================================

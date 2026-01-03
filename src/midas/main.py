@@ -5,16 +5,16 @@ import asyncio
 import sys
 
 from midas.agents import (
-    critical_company_finder,
-    farseer,
+    company_watcher,
+    foresight_to_company_translator,
     general_news_watcher,
-    learning_agent,
-    negative_info_watcher,
-    other_gov_news_watcher,
-    portfolio_analyzer,
+    model_calibration_agent,
+    other_gov_watcher,
+    portfolio_manager,
+    prediction_monitor,
     price_event_analyzer,
     tech_news_watcher,
-    us_gov_news_watcher,
+    us_gov_watcher,
 )
 from midas.models import AccountType, StockHolding
 from midas.tools.portfolio_manager import (
@@ -31,7 +31,7 @@ from midas.tools.stock_screener import TimeFrame, format_movements, screen_mover
 WATCHERS = {
     "us-gov": {
         "name": "US Government News",
-        "module": us_gov_news_watcher,
+        "module": us_gov_watcher,
     },
     "tech": {
         "name": "Technology News",
@@ -39,7 +39,7 @@ WATCHERS = {
     },
     "other-gov": {
         "name": "Other Government News",
-        "module": other_gov_news_watcher,
+        "module": other_gov_watcher,
     },
     "general": {
         "name": "General News",
@@ -147,16 +147,16 @@ async def run_analyze(symbol: str, mode: str) -> int:
         result = await price_event_analyzer.run_agent(symbol)
         print(price_event_analyzer.format_analysis(result))
     elif mode == "risk":
-        result = await negative_info_watcher.run_agent(symbol)
-        print(negative_info_watcher.format_results(result))
+        result = await company_watcher.run_agent(symbol)
+        print(company_watcher.format_results(result))
     else:  # full
         print("\n>>> Price Event Analysis <<<")
         price_result = await price_event_analyzer.run_agent(symbol)
         print(price_event_analyzer.format_analysis(price_result))
 
         print("\n>>> Negative Information Scan <<<")
-        risk_result = await negative_info_watcher.run_agent(symbol)
-        print(negative_info_watcher.format_results(risk_result))
+        risk_result = await company_watcher.run_agent(symbol)
+        print(company_watcher.format_results(risk_result))
 
     return 0
 
@@ -253,7 +253,7 @@ async def run_portfolio_analyze() -> int:
     print("Analyzing portfolio...")
     print("-" * 50)
 
-    await portfolio_analyzer.run_agent()
+    await portfolio_manager.run_agent()
     return 0
 
 
@@ -267,34 +267,34 @@ async def run_find_companies(prediction: str) -> int:
     print("Finding critical companies for the prediction...")
     print("-" * 50)
 
-    result = await critical_company_finder.run_agent(prediction)
-    print(critical_company_finder.format_analysis(result))
+    result = await foresight_to_company_translator.run_agent(prediction)
+    print(foresight_to_company_translator.format_analysis(result))
 
     return 0
 
 
 # =============================================================================
-# Farseer Commands
+# Prediction Monitor Commands
 # =============================================================================
 
 
-async def run_farseer_scan(year: int) -> int:
+async def run_prediction_monitor_scan(year: int) -> int:
     """Scan for outlook articles and analyze social changes."""
-    print(f"Farseer: Scanning for {year} outlook...")
+    print(f"Prediction Monitor: Scanning for {year} outlook...")
     print("-" * 50)
 
-    result = await farseer.run_scan(year=year)
-    print(farseer.format_report(result))
+    result = await prediction_monitor.run_scan(year=year)
+    print(prediction_monitor.format_report(result))
 
     return 0
 
 
-async def run_farseer_expand() -> int:
+async def run_prediction_monitor_expand() -> int:
     """Get suggestions for expanding the source list."""
-    print("Farseer: Getting source expansion suggestions...")
+    print("Prediction Monitor: Getting source expansion suggestions...")
     print("-" * 50)
 
-    suggestions = await farseer.expand_sources()
+    suggestions = await prediction_monitor.expand_sources()
 
     if not suggestions:
         print("No suggestions available.")
@@ -312,11 +312,11 @@ async def run_farseer_expand() -> int:
     return 0
 
 
-def run_farseer_sources() -> int:
+def run_prediction_monitor_sources() -> int:
     """Show current source list."""
-    sources = farseer.load_sources()
+    sources = prediction_monitor.load_sources()
 
-    print("Farseer Source List")
+    print("Prediction Monitor Source List")
     print(f"Version: {sources.get('version', 'N/A')}")
     print(f"Last updated: {sources.get('updated_at', 'N/A')}")
     print(f"Next review: {sources.get('next_review', 'N/A')}")
@@ -350,22 +350,22 @@ async def run_learn_scan(period: str, max_cases: int) -> int:
     print(f"Learning: Scanning for extreme movements ({period})...")
     print("-" * 50)
 
-    result = await learning_agent.run_agent(period=period, max_cases=max_cases)
-    print(learning_agent.format_report(result))
+    result = await model_calibration_agent.run_agent(period=period, max_cases=max_cases)
+    print(model_calibration_agent.format_report(result))
 
     return 0
 
 
 def run_learn_insights() -> int:
     """Show all learned insights."""
-    insights = learning_agent.list_insights()
-    print(learning_agent.format_insights_list(insights))
+    insights = model_calibration_agent.list_insights()
+    print(model_calibration_agent.format_insights_list(insights))
     return 0
 
 
 def run_learn_cases() -> int:
     """Show all analyzed cases."""
-    cases = learning_agent.list_cases()
+    cases = model_calibration_agent.list_cases()
 
     if not cases:
         print("No cases stored yet. Run 'midas learn scan' to analyze cases.")
@@ -508,17 +508,17 @@ def main():
         help="A future prediction to analyze (e.g., 'Electric vehicles will dominate by 2030')",
     )
 
-    # farseer command
-    farseer_parser = subparsers.add_parser(
-        "farseer", help="Farseer - Scan for future outlook and social changes"
+    # prediction-monitor command
+    prediction_monitor_parser = subparsers.add_parser(
+        "prediction-monitor", help="Prediction Monitor - Scan for future outlook and social changes"
     )
-    farseer_subparsers = farseer_parser.add_subparsers(dest="farseer_command")
+    prediction_monitor_subparsers = prediction_monitor_parser.add_subparsers(dest="prediction_monitor_command")
 
-    # farseer scan
-    farseer_scan_parser = farseer_subparsers.add_parser(
+    # prediction-monitor scan
+    prediction_monitor_scan_parser = prediction_monitor_subparsers.add_parser(
         "scan", help="Scan for outlook articles and analyze social changes"
     )
-    farseer_scan_parser.add_argument(
+    prediction_monitor_scan_parser.add_argument(
         "--year",
         "-y",
         type=int,
@@ -526,13 +526,13 @@ def main():
         help="Target year for outlook (default: current year)",
     )
 
-    # farseer expand
-    farseer_subparsers.add_parser(
+    # prediction-monitor expand
+    prediction_monitor_subparsers.add_parser(
         "expand", help="Get AI suggestions for new sources to add"
     )
 
-    # farseer sources
-    farseer_subparsers.add_parser(
+    # prediction-monitor sources
+    prediction_monitor_subparsers.add_parser(
         "sources", help="Show current source list"
     )
 
@@ -600,17 +600,17 @@ def main():
             return 0
     elif args.command == "find-companies":
         return asyncio.run(run_find_companies(args.prediction))
-    elif args.command == "farseer":
-        if args.farseer_command == "scan":
+    elif args.command == "prediction-monitor":
+        if args.prediction_monitor_command == "scan":
             from datetime import datetime
             year = args.year or datetime.now().year
-            return asyncio.run(run_farseer_scan(year))
-        elif args.farseer_command == "expand":
-            return asyncio.run(run_farseer_expand())
-        elif args.farseer_command == "sources":
-            return run_farseer_sources()
+            return asyncio.run(run_prediction_monitor_scan(year))
+        elif args.prediction_monitor_command == "expand":
+            return asyncio.run(run_prediction_monitor_expand())
+        elif args.prediction_monitor_command == "sources":
+            return run_prediction_monitor_sources()
         else:
-            farseer_parser.print_help()
+            prediction_monitor_parser.print_help()
             return 0
     elif args.command == "learn":
         if args.learn_command == "scan":
