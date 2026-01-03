@@ -2,6 +2,7 @@
 
 from midas.agents import (
     company_watcher,
+    foresight_manager,
     foresight_to_company_translator,
     general_news_watcher,
     model_calibration_agent,
@@ -21,6 +22,7 @@ __all__ = [
     "price_event_analyzer",
     "company_watcher",
     "portfolio_manager",
+    "foresight_manager",
     "foresight_to_company_translator",
     "prediction_monitor",
     "model_calibration_agent",

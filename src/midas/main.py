@@ -6,6 +6,7 @@ import sys
 
 from midas.agents import (
     company_watcher,
+    foresight_manager,
     foresight_to_company_translator,
     general_news_watcher,
     model_calibration_agent,
@@ -341,6 +342,29 @@ def run_prediction_monitor_sources() -> int:
 
 
 # =============================================================================
+# Foresight Commands
+# =============================================================================
+
+
+async def run_foresight_scan(force_full: bool) -> int:
+    """Scan and update foresights."""
+    print("Foresight Manager: Starting scan...")
+    print("-" * 50)
+
+    result = await foresight_manager.run_agent(force_full=force_full)
+    print(foresight_manager.format_results(result))
+
+    return 0 if not result.get("error") else 1
+
+
+def run_foresight_list() -> int:
+    """List all foresights."""
+    foresights = foresight_manager.list_foresights()
+    print(foresight_manager.format_foresights_list(foresights))
+    return 0
+
+
+# =============================================================================
 # Learning Commands
 # =============================================================================
 
@@ -536,6 +560,27 @@ def main():
         "sources", help="Show current source list"
     )
 
+    # foresight command
+    foresight_parser = subparsers.add_parser(
+        "foresight", help="Manage foresights (future predictions)"
+    )
+    foresight_subparsers = foresight_parser.add_subparsers(dest="foresight_command")
+
+    # foresight scan
+    foresight_scan_parser = foresight_subparsers.add_parser(
+        "scan", help="Scan and update foresights"
+    )
+    foresight_scan_parser.add_argument(
+        "--force-full",
+        action="store_true",
+        help="Force full update using prediction_monitor",
+    )
+
+    # foresight list
+    foresight_subparsers.add_parser(
+        "list", help="List all stored foresights"
+    )
+
     # learn command
     learn_parser = subparsers.add_parser(
         "learn", help="Learn from extreme price movements"
@@ -611,6 +656,14 @@ def main():
             return run_prediction_monitor_sources()
         else:
             prediction_monitor_parser.print_help()
+            return 0
+    elif args.command == "foresight":
+        if args.foresight_command == "scan":
+            return asyncio.run(run_foresight_scan(args.force_full))
+        elif args.foresight_command == "list":
+            return run_foresight_list()
+        else:
+            foresight_parser.print_help()
             return 0
     elif args.command == "learn":
         if args.learn_command == "scan":

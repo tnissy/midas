@@ -268,6 +268,32 @@ class Portfolio(BaseModel):
 
 
 # =============================================================================
+# Foresight Models (未来予測)
+# =============================================================================
+
+
+class ForesightSource(BaseModel):
+    """A source document that supports a foresight."""
+
+    title: str = Field(description="Source document title")
+    url: str = Field(description="Source URL")
+    published: datetime = Field(description="Published datetime")
+    excerpt: str = Field(default="", description="Relevant excerpt from the source")
+
+
+class Foresight(BaseModel):
+    """A future prediction managed by forsight_manager."""
+
+    id: str = Field(description="Unique identifier (e.g., foresight_20260104_001)")
+    title: str = Field(description="Brief title of the foresight")
+    description: str = Field(description="Detailed description of the prediction")
+    sources: list[ForesightSource] = Field(
+        default_factory=list, description="Source documents supporting this foresight"
+    )
+    created_at: datetime = Field(default_factory=datetime.now)
+
+
+# =============================================================================
 # Future Insight Models
 # =============================================================================
 

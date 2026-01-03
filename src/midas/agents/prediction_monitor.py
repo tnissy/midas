@@ -170,7 +170,7 @@ async def search_google_news(
     return articles
 
 
-def load_watcher_news(days_back: int = 30) -> list[Article]:
+def load_watcher_news(days_back: int = 180) -> list[Article]:
     """Load recent news from news watchers."""
     articles: list[Article] = []
     news_dir = DATA_DIR / "news"
@@ -218,52 +218,41 @@ def load_watcher_news(days_back: int = 30) -> list[Article]:
 # LLM Analysis (Single Call)
 # =============================================================================
 
-ANALYSIS_PROMPT = """You are Farseer, an expert analyst identifying structural changes and investment opportunities from news and outlook articles.
+ANALYSIS_PROMPT = """You are Farseer, an expert analyst extracting future predictions from news and outlook articles.
 
-Analyze these articles and provide a COMPREHENSIVE analysis in a SINGLE response:
+Your task is to extract AS MANY future predictions as possible from these articles.
+Target: Extract at least 100 predictions. Do not summarize or consolidate - list each prediction separately.
 
-1. **Social Changes**: Identify significant structural shifts (technology, regulation, behavior, geopolitical, economic)
-2. **Investment Themes**: Synthesize changes into actionable investment themes
-3. **Beneficiaries**: Identify companies/sectors that benefit from each theme
-4. **Executive Summary**: 2-3 paragraphs in Japanese summarizing the key insights
+For EACH article, extract:
+- What future change/trend/prediction is mentioned?
+- What category does it belong to?
+- IMPORTANT: Include the article number [N] from the input
 
-For social changes, assess:
-- Time horizon: near (1-2 years), medium (3-5 years), long (5-10 years)
-- Confidence: low/medium/high
+Categories: technology, regulation, behavior, geopolitical, economic, industry, environment, social
 
-For investment themes, provide:
-- Clear thesis explaining why this creates value
-- Specific beneficiaries with stock symbols when possible
-- Key risks
+IMPORTANT:
+- Extract individual predictions, not summaries
+- Include specific numbers, dates, forecasts when mentioned
+- Don't skip articles - extract at least one prediction from each
+- ALWAYS include the article_index (the [N] number from input)
+- Be exhaustive, not selective
 
 Respond in JSON:
 {{
-    "executive_summary": "日本語で2-3段落のサマリー",
-    "social_changes": [
+    "predictions": [
         {{
-            "title": "Change title",
-            "category": "technology|regulation|behavior|geopolitical|economic",
-            "description": "Detailed description",
-            "time_horizon": "near|medium|long",
-            "confidence": "low|medium|high",
-            "implications": ["Implication 1", "Implication 2"]
+            "article_index": 1,
+            "title": "Short prediction title (max 20 words)",
+            "category": "technology|regulation|behavior|geopolitical|economic|industry|environment|social",
+            "detail": "One sentence detail if available"
         }}
     ],
-    "investment_themes": [
-        {{
-            "title": "Theme title",
-            "thesis": "Why this creates investment value",
-            "related_changes": ["Change title 1", "Change title 2"],
-            "beneficiaries": [
-                {{"name": "Company", "symbol": "TICKER", "reason": "Why they benefit"}}
-            ],
-            "risks": ["Risk 1", "Risk 2"],
-            "conviction": "low|medium|high"
-        }}
-    ],
-    "key_observations": ["Observation 1", "Observation 2"],
-    "action_items": ["Action 1", "Action 2"]
+    "total_extracted": number
 }}
+
+Example:
+If article [5] says "AI will transform healthcare by 2030", output:
+{{"article_index": 5, "title": "AI to transform healthcare by 2030", "category": "technology", "detail": "..."}}
 """
 
 EXPAND_SOURCES_PROMPT = """You are helping curate authoritative sources for structural change analysis.
@@ -379,17 +368,17 @@ async def analyze_articles(state: FarseerState) -> FarseerState:
     llm = ChatGoogleGenerativeAI(model=LLM_MODEL, google_api_key=GEMINI_API_KEY)
 
     try:
-        # Prepare context (limit to 60 articles for token efficiency)
+        # Prepare context - use ALL articles for comprehensive extraction
         articles_text = []
-        for i, article in enumerate(state["articles"][:60]):
+        for i, article in enumerate(state["articles"]):
             articles_text.append(
-                f"[{i}] {article['title']}\n"
-                f"Source: {article['source']} | Origin: {article['origin']}\n"
-                f"Snippet: {article['snippet'][:250]}"
+                f"[{i+1}] {article['title']}\n"
+                f"Source: {article['source']}\n"
+                f"Snippet: {article['snippet'][:300]}"
             )
 
         year = state.get("year", datetime.now().year)
-        prompt = f"ARTICLES FOR {year} ANALYSIS:\n\n" + "\n\n".join(articles_text)
+        prompt = f"ARTICLES FOR {year} ANALYSIS ({len(state['articles'])} articles):\n\n" + "\n\n".join(articles_text)
 
         messages = [
             SystemMessage(content=ANALYSIS_PROMPT),
@@ -405,25 +394,61 @@ async def analyze_articles(state: FarseerState) -> FarseerState:
             if start != -1 and end > start:
                 result = json.loads(result_text[start:end])
 
+                # Convert predictions to social_changes format with article data
+                predictions = result.get("predictions", [])
+                articles = state["articles"]
+                social_changes: list[SocialChange] = []
+
+                for pred in predictions:
+                    # Get original article data using article_index
+                    article_idx = pred.get("article_index", 0) - 1  # Convert to 0-based
+                    if 0 <= article_idx < len(articles):
+                        article = articles[article_idx]
+                        article_title = article.get("title", "")
+                        article_url = article.get("url", "")
+                        article_source = article.get("source", "")
+                        article_snippet = article.get("snippet", "")
+                    else:
+                        article_title = ""
+                        article_url = ""
+                        article_source = "Unknown"
+                        article_snippet = ""
+
+                    social_changes.append(
+                        SocialChange(
+                            title=pred.get("title", ""),
+                            category=pred.get("category", "other"),
+                            description=pred.get("detail", ""),
+                            time_horizon="medium",
+                            confidence="medium",
+                            implications=[
+                                f"article_title:{article_title}",
+                                f"article_url:{article_url}",
+                                f"article_source:{article_source}",
+                                f"article_snippet:{article_snippet[:300]}",
+                            ],
+                        )
+                    )
+
                 # Build report
                 report: FarseerReport = {
                     "generated_at": datetime.now().isoformat(),
                     "year": year,
                     "articles_analyzed": len(state["articles"]),
-                    "executive_summary": result.get("executive_summary", ""),
-                    "social_changes": result.get("social_changes", []),
-                    "investment_themes": result.get("investment_themes", []),
-                    "key_observations": result.get("key_observations", []),
-                    "action_items": result.get("action_items", []),
+                    "executive_summary": f"Extracted {len(predictions)} future predictions from {len(state['articles'])} articles.",
+                    "social_changes": social_changes,
+                    "investment_themes": [],  # Will be generated by foresight_manager
+                    "key_observations": [],
+                    "action_items": [],
                 }
 
                 state["report"] = report
 
                 # Print progress
-                print(f"  Social changes: {len(report['social_changes'])}")
-                print(f"  Investment themes: {len(report['investment_themes'])}")
+                print(f"  Predictions extracted: {len(predictions)}")
 
-                for change in report["social_changes"]:
+                # Show sample predictions
+                for change in social_changes[:10]:
                     print(f"    [{change.get('category', '?')}] {change.get('title', '')}")
 
     except Exception as e:
