@@ -18,7 +18,6 @@ from typing import TypedDict
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langgraph.graph import END, StateGraph
 
 from midas.agents import prediction_monitor
 from midas.config import DATA_DIR, GEMINI_API_KEY, LLM_MODEL, extract_llm_text
@@ -590,42 +589,9 @@ def save_results(state: ForesightState) -> ForesightState:
     return state
 
 
-def route_by_mode(state: ForesightState) -> str:
-    """Route to appropriate mode handler."""
-    return "full" if state.get("mode") == "full" else "incremental"
-
-
 # =============================================================================
-# Agent Graph
+# Simplified Agent Runner (no StateGraph)
 # =============================================================================
-
-
-def create_agent() -> StateGraph:
-    """Create the foresight manager agent graph."""
-    workflow = StateGraph(ForesightState)
-
-    # Add nodes
-    workflow.add_node("determine_mode", determine_mode_node)
-    workflow.add_node("full", run_full_mode)
-    workflow.add_node("incremental", run_incremental_mode)
-    workflow.add_node("save", save_results)
-
-    # Set entry point
-    workflow.set_entry_point("determine_mode")
-
-    # Add conditional routing
-    workflow.add_conditional_edges(
-        "determine_mode",
-        route_by_mode,
-        {"full": "full", "incremental": "incremental"},
-    )
-
-    # Both modes lead to save
-    workflow.add_edge("full", "save")
-    workflow.add_edge("incremental", "save")
-    workflow.add_edge("save", END)
-
-    return workflow.compile()
 
 
 async def run_agent(force_full: bool = False) -> ForesightState:
@@ -639,9 +605,7 @@ async def run_agent(force_full: bool = False) -> ForesightState:
     """
     log_agent_start(logger, "foresight_manager", {"force_full": force_full})
 
-    agent = create_agent()
-
-    initial_state: ForesightState = {
+    state: ForesightState = {
         "mode": "",
         "force_full": force_full,
         "existing_foresights": [],
@@ -653,10 +617,22 @@ async def run_agent(force_full: bool = False) -> ForesightState:
     }
 
     try:
-        final_state = await agent.ainvoke(initial_state)
-        error = final_state.get("error")
-        log_agent_end(logger, "foresight_manager", final_state, error)
-        return final_state
+        # Step 1: Determine mode
+        state = determine_mode_node(state)
+
+        # Step 2: Run appropriate mode
+        if state["mode"] == "full":
+            state = await run_full_mode(state)
+        else:
+            state = await run_incremental_mode(state)
+
+        # Step 3: Save results
+        state = save_results(state)
+
+        error = state.get("error")
+        log_agent_end(logger, "foresight_manager", state, error)
+        return state
+
     except Exception as e:
         logger.exception("Unhandled exception in foresight_manager")
         log_agent_end(logger, "foresight_manager", None, str(e))

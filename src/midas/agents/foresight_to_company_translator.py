@@ -15,6 +15,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import END, StateGraph
 
 from midas.config import DATA_DIR, GEMINI_API_KEY, LLM_MODEL, extract_llm_text
+from midas.logging_config import get_agent_logger
 from midas.models import (
     CriticalCompany,
     FuturePredictionAnalysis,
@@ -22,6 +23,9 @@ from midas.models import (
     ValueChainLayer,
     ValueChainLayerType,
 )
+
+# Logger setup
+logger = get_agent_logger("foresight_to_company_translator")
 
 # =============================================================================
 # Constants
@@ -171,7 +175,7 @@ Focus on:
 async def decompose_value_chain(state: FinderState) -> FinderState:
     """Step 1: Decompose the prediction into value chain layers."""
     prediction = state["prediction"]
-    print(f"Step 1: Decomposing value chain for: {prediction[:60]}...")
+    logger.info(f"Step 1: Decomposing value chain for: {prediction[:60]}...")
 
     if not GEMINI_API_KEY:
         state["error"] = "No API key configured. Set GEMINI_API_KEY environment variable."
@@ -212,7 +216,7 @@ async def decompose_value_chain(state: FinderState) -> FinderState:
 
             state["value_chain_layers"] = layers
             state["time_horizon"] = result.get("time_horizon", "medium")
-            print(f"  Identified {len(layers)} value chain layers")
+            logger.info(f"  Identified {len(layers)} value chain layers")
 
     except Exception as e:
         state["error"] = f"Failed to decompose value chain: {e}"
@@ -225,7 +229,7 @@ async def find_companies_per_layer(state: FinderState) -> FinderState:
     if state.get("error") or not state.get("value_chain_layers"):
         return state
 
-    print(f"Step 2: Finding companies for {len(state['value_chain_layers'])} layers...")
+    logger.info(f"Step 2: Finding companies for {len(state['value_chain_layers'])} layers...")
 
     if not GEMINI_API_KEY:
         state["error"] = "No API key configured."
@@ -235,7 +239,7 @@ async def find_companies_per_layer(state: FinderState) -> FinderState:
     all_companies: list[CriticalCompany] = []
 
     for layer in state["value_chain_layers"]:
-        print(f"  Searching: {layer.name} ({layer.layer_type.value})...")
+        logger.info(f"  Searching: {layer.name} ({layer.layer_type.value})...")
 
         prompt = COMPANY_FINDER_PROMPT.format(
             layer_name=layer.name,
@@ -269,13 +273,13 @@ async def find_companies_per_layer(state: FinderState) -> FinderState:
                     )
                     all_companies.append(company)
 
-                print(f"    Found {len(result.get('companies', []))} companies")
+                logger.info(f"    Found {len(result.get('companies', []))} companies")
 
         except Exception as e:
-            print(f"    Error: {e}")
+            logger.error(f"Error: {e}")
 
     state["companies"] = all_companies
-    print(f"  Total: {len(all_companies)} companies across all layers")
+    logger.info(f"  Total: {len(all_companies)} companies across all layers")
 
     return state
 
@@ -285,7 +289,7 @@ async def synthesize_analysis(state: FinderState) -> FinderState:
     if state.get("error"):
         return state
 
-    print("Step 3: Synthesizing analysis...")
+    logger.info("Step 3: Synthesizing analysis...")
 
     if not GEMINI_API_KEY or not state.get("companies"):
         # Create basic analysis without synthesis
@@ -352,10 +356,10 @@ async def synthesize_analysis(state: FinderState) -> FinderState:
             investment_implications=implications,
             risks=risks,
         )
-        print("  Analysis complete")
+        logger.info("  Analysis complete")
 
     except Exception as e:
-        print(f"  Error in synthesis: {e}")
+        logger.error(f"Error in synthesis: {e}")
         state["analysis"] = FuturePredictionAnalysis(
             prediction=state["prediction"],
             time_horizon=TimeHorizon(state.get("time_horizon", "medium")),
@@ -372,7 +376,7 @@ def save_results(state: FinderState) -> FinderState:
         state["saved_path"] = None
         return state
 
-    print("Saving results...")
+    logger.info("Saving results...")
 
     ANALYSIS_DATA_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -406,7 +410,7 @@ def save_results(state: FinderState) -> FinderState:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
     state["saved_path"] = str(filepath)
-    print(f"Saved to: {filepath}")
+    logger.info(f"Saved to: {filepath}")
     return state
 
 

@@ -17,6 +17,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import END, StateGraph
 
 from midas.config import DATA_DIR, GEMINI_API_KEY, LLM_MODEL, extract_llm_text
+from midas.logging_config import get_agent_logger
 from midas.models import (
     LearningCase,
     LearningReport,
@@ -29,6 +30,9 @@ from midas.models import (
 )
 from midas.tools.company_news_fetcher import fetch_news_around_date
 from midas.tools.stock_screener import TimeFrame, screen_movers
+
+# Logger setup
+logger = get_agent_logger("model_calibration_agent")
 
 # =============================================================================
 # Constants
@@ -233,7 +237,7 @@ def save_insight(insight: LearnedInsight) -> None:
 
 async def scan_extreme_movers(state: LearningState) -> LearningState:
     """Scan for stocks with extreme price movements."""
-    print("Scanning for extreme price movements...")
+    logger.info("Scanning for extreme price movements...")
 
     period = state.get("period", "month")
     max_cases = state.get("max_cases", 20)
@@ -249,7 +253,7 @@ async def scan_extreme_movers(state: LearningState) -> LearningState:
 
     try:
         # Screen for gainers (200%+)
-        print(f"  Screening for 3x gainers ({timeframe.value})...")
+        logger.info(f"  Screening for 3x gainers ({timeframe.value})...")
         gainers = screen_movers(
             timeframe=timeframe,
             min_change=THRESHOLD_UP,
@@ -267,10 +271,10 @@ async def scan_extreme_movers(state: LearningState) -> LearningState:
             for m in gainers
             if m.is_significant
         ]
-        print(f"  Found {len(state['up_movers'])} 3x gainers")
+        logger.info(f"  Found {len(state['up_movers'])} 3x gainers")
 
         # Screen for losers (-66.7%+)
-        print(f"  Screening for 1/3 losers ({timeframe.value})...")
+        logger.info(f"  Screening for 1/3 losers ({timeframe.value})...")
         losers = screen_movers(
             timeframe=timeframe,
             min_change=abs(THRESHOLD_DOWN),
@@ -288,7 +292,7 @@ async def scan_extreme_movers(state: LearningState) -> LearningState:
             for m in losers
             if m.is_significant
         ]
-        print(f"  Found {len(state['down_movers'])} 1/3 losers")
+        logger.info(f"  Found {len(state['down_movers'])} 1/3 losers")
 
     except Exception as e:
         state["error"] = f"Failed to scan for movers: {e}"
@@ -305,11 +309,11 @@ async def fetch_case_details(state: LearningState) -> LearningState:
 
     all_movers = state["up_movers"] + state["down_movers"]
     if not all_movers:
-        print("No extreme movers found to analyze.")
+        logger.info("No extreme movers found to analyze.")
         state["cases"] = []
         return state
 
-    print(f"Fetching details for {len(all_movers)} cases...")
+    logger.info(f"Fetching details for {len(all_movers)} cases...")
 
     # Get existing case IDs to avoid duplicates
     existing_ids = {c.id for c in load_existing_cases()}
@@ -333,10 +337,10 @@ async def fetch_case_details(state: LearningState) -> LearningState:
 
         # Skip if already analyzed
         if case_id in existing_ids:
-            print(f"  Skipping {symbol} (already analyzed)")
+            logger.info(f"  Skipping {symbol} (already analyzed)")
             continue
 
-        print(f"  Processing {symbol}...")
+        logger.info(f"  Processing {symbol}...")
 
         try:
             # Get company name from yfinance
@@ -375,11 +379,11 @@ async def fetch_case_details(state: LearningState) -> LearningState:
             cases.append(case)
 
         except Exception as e:
-            print(f"    Error processing {symbol}: {e}")
+            logger.error(f"Error processing {symbol}: {e}")
             continue
 
     state["cases"] = cases
-    print(f"Prepared {len(cases)} cases for analysis")
+    logger.info(f"Prepared {len(cases)} cases for analysis")
     return state
 
 
@@ -389,14 +393,14 @@ async def analyze_cases(state: LearningState) -> LearningState:
         return state
 
     if not GEMINI_API_KEY:
-        print("Warning: No API key, skipping LLM analysis")
+        logger.warning("No API key, skipping LLM analysis")
         return state
 
-    print("Analyzing cases with LLM...")
+    logger.info("Analyzing cases with LLM...")
     llm = ChatGoogleGenerativeAI(model=LLM_MODEL, google_api_key=GEMINI_API_KEY)
 
     for case in state["cases"]:
-        print(f"  Analyzing {case.symbol} ({case.change_percent:+.1f}%)...")
+        logger.info(f"  Analyzing {case.symbol} ({case.change_percent:+.1f}%)...")
 
         try:
             direction = "increased 3x+" if case.direction == MovementDirection.UP else "decreased to 1/3"
@@ -439,13 +443,13 @@ Analyze what structural change caused this extreme price movement."""
                     case.lessons_learned = result.get("lessons_learned", [])
                     case.confidence = result.get("confidence", 0.5)
 
-                    print(f"    Cause: {case.root_cause[:60]}...")
+                    logger.info(f"    Cause: {case.root_cause[:60]}...")
 
             # Save the analyzed case
             save_case(case)
 
         except Exception as e:
-            print(f"    Error analyzing {case.symbol}: {e}")
+            logger.error(f"Error analyzing {case.symbol}: {e}")
             continue
 
     return state
@@ -458,16 +462,16 @@ async def synthesize_insights(state: LearningState) -> LearningState:
 
     analyzed_cases = [c for c in state.get("cases", []) if c.root_cause]
     if not analyzed_cases:
-        print("No analyzed cases to synthesize insights from.")
+        logger.info("No analyzed cases to synthesize insights from.")
         state["insights"] = []
         return state
 
     if not GEMINI_API_KEY:
-        print("Warning: No API key, skipping insight synthesis")
+        logger.warning("No API key, skipping insight synthesis")
         state["insights"] = []
         return state
 
-    print("Synthesizing insights from cases...")
+    logger.info("Synthesizing insights from cases...")
     llm = ChatGoogleGenerativeAI(model=LLM_MODEL, google_api_key=GEMINI_API_KEY)
 
     try:
@@ -581,10 +585,10 @@ Create insights that can help detect similar situations in the future."""
             recommendations=recommendations,
         )
 
-        print(f"Created {len(insights)} insights")
+        logger.info(f"Created {len(insights)} insights")
 
     except Exception as e:
-        print(f"Error synthesizing insights: {e}")
+        logger.error(f"Error synthesizing insights: {e}")
         state["insights"] = []
 
     return state
@@ -596,7 +600,7 @@ def save_report(state: LearningState) -> LearningState:
         state["saved_path"] = None
         return state
 
-    print("Saving learning report...")
+    logger.info("Saving learning report...")
 
     LEARNING_DATA_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -607,7 +611,7 @@ def save_report(state: LearningState) -> LearningState:
         json.dump(state["report"].model_dump(mode="json"), f, ensure_ascii=False, indent=2)
 
     state["saved_path"] = str(filepath)
-    print(f"Saved to: {filepath}")
+    logger.info(f"Saved to: {filepath}")
     return state
 
 

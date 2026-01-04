@@ -10,8 +10,12 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import END, StateGraph
 
 from midas.config import extract_llm_text, DATA_DIR, GEMINI_API_KEY, LLM_MODEL
+from midas.logging_config import get_agent_logger
 from midas.models import CompanyNews, PriceEvent, PriceEventAnalysis
 from midas.tools.company_news_fetcher import fetch_news_around_date
+
+# Logger setup
+logger = get_agent_logger("price_event_analyzer")
 
 # =============================================================================
 # Constants
@@ -84,7 +88,7 @@ Respond in JSON format:
 async def fetch_price_data(state: AnalyzerState) -> AnalyzerState:
     """Fetch stock price data and identify significant movements."""
     symbol = state["symbol"]
-    print(f"Fetching price data for {symbol}...")
+    logger.info(f"Fetching price data for {symbol}...")
 
     try:
         ticker = yf.Ticker(symbol)
@@ -133,7 +137,7 @@ async def fetch_price_data(state: AnalyzerState) -> AnalyzerState:
 
         # Keep top 10 events
         state["price_events"] = events[:10]
-        print(f"Found {len(state['price_events'])} significant price events")
+        logger.info(f"Found {len(state['price_events'])} significant price events")
 
     except Exception as e:
         state["error"] = f"Failed to fetch price data: {e}"
@@ -150,13 +154,13 @@ async def fetch_related_news(state: AnalyzerState) -> AnalyzerState:
 
     symbol = state["symbol"]
     company_name = state["company_name"]
-    print(f"Fetching news for {len(state['price_events'])} price events...")
+    logger.info(f"Fetching news for {len(state['price_events'])} price events...")
 
     news_by_event: dict[str, list[CompanyNews]] = {}
 
     for event in state["price_events"]:
         event_key = event.date.strftime("%Y-%m-%d")
-        print(f"  Fetching news around {event_key}...")
+        logger.info(f"  Fetching news around {event_key}...")
 
         # Search with both symbol and company name
         news_items: list[CompanyNews] = []
@@ -179,7 +183,7 @@ async def fetch_related_news(state: AnalyzerState) -> AnalyzerState:
                 unique_news.append(item)
 
         news_by_event[event_key] = unique_news
-        print(f"    Found {len(unique_news)} news items")
+        logger.info(f"    Found {len(unique_news)} news items")
 
     state["news_by_event"] = news_by_event
     return state
@@ -191,10 +195,10 @@ async def analyze_events(state: AnalyzerState) -> AnalyzerState:
         state["analyses"] = []
         return state
 
-    print("Analyzing price events with LLM...")
+    logger.info("Analyzing price events with LLM...")
 
     if not GEMINI_API_KEY:
-        print("Warning: No API key, skipping LLM analysis")
+        logger.warning("No API key, skipping LLM analysis")
         # Return basic analysis without LLM
         state["analyses"] = [
             PriceEventAnalysis(
@@ -215,7 +219,7 @@ async def analyze_events(state: AnalyzerState) -> AnalyzerState:
         event_key = event.date.strftime("%Y-%m-%d")
         news_items = state["news_by_event"].get(event_key, [])
 
-        print(f"  Analyzing event on {event_key} ({event.change_percent:+.1f}%)...")
+        logger.info(f"  Analyzing event on {event_key} ({event.change_percent:+.1f}%)...")
 
         try:
             # Prepare context for LLM
@@ -277,10 +281,10 @@ Analyze what likely caused this price movement."""
                         confidence=result.get("confidence", 0.0),
                     )
                     analyses.append(analysis)
-                    print(f"    Cause: {analysis.likely_cause[:60]}...")
+                    logger.info(f"    Cause: {analysis.likely_cause[:60]}...")
 
         except Exception as e:
-            print(f"    Error analyzing event: {e}")
+            logger.error(f"Error analyzing event: {e}")
             # Add basic analysis
             analyses.append(
                 PriceEventAnalysis(
@@ -300,7 +304,7 @@ def save_results(state: AnalyzerState) -> AnalyzerState:
         state["saved_path"] = None
         return state
 
-    print("Saving analysis results...")
+    logger.info("Saving analysis results...")
 
     # Ensure directory exists
     WATCHER_DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -334,7 +338,7 @@ def save_results(state: AnalyzerState) -> AnalyzerState:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
     state["saved_path"] = str(filepath)
-    print(f"Saved to: {filepath}")
+    logger.info(f"Saved to: {filepath}")
     return state
 
 

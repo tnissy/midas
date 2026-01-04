@@ -108,8 +108,8 @@ class PriceEventAnalysis(BaseModel):
     )
 
 
-class NegativeInfo(BaseModel):
-    """Negative information about a company."""
+class RiskInfo(BaseModel):
+    """Risk information about a company."""
 
     category: str = Field(
         description="Category: lawsuit/recall/investigation/earnings_miss/downgrade/scandal/other"
@@ -132,8 +132,8 @@ class CompanyAnalysis(BaseModel):
     price_events: list[PriceEventAnalysis] = Field(
         default_factory=list, description="Significant price events and their causes"
     )
-    negative_info: list[NegativeInfo] = Field(
-        default_factory=list, description="Current negative information"
+    risk_info: list[RiskInfo] = Field(
+        default_factory=list, description="Current risk information"
     )
     risk_summary: str | None = Field(
         default=None, description="Overall risk assessment summary"

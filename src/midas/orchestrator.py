@@ -30,7 +30,8 @@ from midas.models import NewsItem, Foresight, Portfolio
 
 # Import agent modules
 from midas.agents import us_gov_watcher, tech_news_watcher, general_news_watcher, other_gov_watcher
-from midas.agents import foresight_manager, portfolio_manager
+from midas.agents import foresight_manager, foresight_to_company_translator
+from midas.agents import company_watcher, price_event_analyzer, portfolio_manager
 
 logger = get_agent_logger("orchestrator")
 
@@ -115,7 +116,131 @@ async def run_foresight_manager(state: MidasState) -> MidasState:
         state["foresights"] = []
 
     log_node_end(logger, "foresight_manager")
-    log_transition(logger, "foresight_manager", "portfolio_manager")
+    log_transition(logger, "foresight_manager", "translator")
+    return state
+
+
+async def run_translator(state: MidasState) -> MidasState:
+    """Translate foresights to critical companies."""
+    log_node_start(logger, "translator")
+
+    logger.info("Running foresight-to-company translator...")
+
+    if not state.get("foresights"):
+        logger.info("No foresights to translate")
+        state["companies"] = []
+        log_node_end(logger, "translator")
+        log_transition(logger, "translator", "portfolio_manager")
+        return state
+
+    companies_set = set()
+
+    try:
+        # Process each foresight (limit to top 5 to avoid API rate limits)
+        for foresight in state["foresights"][:5]:
+            logger.info(f"Analyzing foresight: {foresight.title[:60]}...")
+
+            try:
+                result = await foresight_to_company_translator.run_agent(
+                    foresight.description
+                )
+
+                # Extract company symbols from the result
+                for company in result.get("companies", []):
+                    if company.ticker_symbol:
+                        companies_set.add(company.ticker_symbol)
+
+            except Exception as e:
+                logger.warning(f"Failed to translate foresight: {e}")
+                continue
+
+        state["companies"] = list(companies_set)
+        logger.info(f"Identified {len(state['companies'])} critical companies")
+
+    except Exception as e:
+        logger.error(f"Translator failed: {e}")
+        state["companies"] = []
+
+    log_node_end(logger, "translator")
+    log_transition(logger, "translator", "company_watcher")
+    return state
+
+
+async def run_company_watcher(state: MidasState) -> MidasState:
+    """Watch company-specific risk information."""
+    log_node_start(logger, "company_watcher")
+
+    logger.info("Running company watcher...")
+
+    if not state.get("companies"):
+        logger.info("No companies to watch")
+        state["company_news"] = {}
+        log_node_end(logger, "company_watcher")
+        log_transition(logger, "company_watcher", "price_event_analyzer")
+        return state
+
+    company_news = {}
+
+    try:
+        # Watch each company (limit to top 3 to avoid rate limits)
+        for symbol in state["companies"][:3]:
+            logger.info(f"Watching company: {symbol}")
+
+            try:
+                result = await company_watcher.run_agent(symbol)
+                # Store news items for this company
+                company_news[symbol] = result.get("filtered_items", [])
+
+            except Exception as e:
+                logger.warning(f"Failed to watch {symbol}: {e}")
+                company_news[symbol] = []
+                continue
+
+        state["company_news"] = company_news
+        total_news = sum(len(items) for items in company_news.values())
+        logger.info(f"Collected company news: {total_news} items across {len(company_news)} companies")
+
+    except Exception as e:
+        logger.error(f"Company watcher failed: {e}")
+        state["company_news"] = {}
+
+    log_node_end(logger, "company_watcher")
+    log_transition(logger, "company_watcher", "price_event_analyzer")
+    return state
+
+
+async def run_price_analyzer(state: MidasState) -> MidasState:
+    """Analyze price events for companies."""
+    log_node_start(logger, "price_event_analyzer")
+
+    logger.info("Running price event analyzer...")
+
+    if not state.get("companies"):
+        logger.info("No companies to analyze")
+        log_node_end(logger, "price_event_analyzer")
+        log_transition(logger, "price_event_analyzer", "portfolio_manager")
+        return state
+
+    try:
+        # Analyze each company (limit to top 3)
+        for symbol in state["companies"][:3]:
+            logger.info(f"Analyzing price events for: {symbol}")
+
+            try:
+                result = await price_event_analyzer.run_agent(symbol)
+                logger.info(f"  Found {len(result.get('price_events', []))} price events")
+
+            except Exception as e:
+                logger.warning(f"Failed to analyze {symbol}: {e}")
+                continue
+
+        logger.info("Price analysis completed")
+
+    except Exception as e:
+        logger.error(f"Price analyzer failed: {e}")
+
+    log_node_end(logger, "price_event_analyzer")
+    log_transition(logger, "price_event_analyzer", "portfolio_manager")
     return state
 
 
@@ -156,12 +281,18 @@ def create_orchestrator() -> StateGraph:
     # Add nodes
     workflow.add_node("news_watchers", run_news_watchers)
     workflow.add_node("foresight_manager", run_foresight_manager)
+    workflow.add_node("translator", run_translator)
+    workflow.add_node("company_watcher", run_company_watcher)
+    workflow.add_node("price_analyzer", run_price_analyzer)
     workflow.add_node("portfolio_manager", run_portfolio_manager)
 
     # Define flow
     workflow.set_entry_point("news_watchers")
     workflow.add_edge("news_watchers", "foresight_manager")
-    workflow.add_edge("foresight_manager", "portfolio_manager")
+    workflow.add_edge("foresight_manager", "translator")
+    workflow.add_edge("translator", "company_watcher")
+    workflow.add_edge("company_watcher", "price_analyzer")
+    workflow.add_edge("price_analyzer", "portfolio_manager")
     workflow.add_edge("portfolio_manager", END)
 
     return workflow.compile()

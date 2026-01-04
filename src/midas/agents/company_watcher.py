@@ -1,7 +1,6 @@
-"""Company Watcher - Monitors companies for negative news and risks."""
+"""Company Watcher - Monitors companies for risk news and issues."""
 
 import json
-import logging
 from datetime import datetime
 from typing import TypedDict
 
@@ -11,7 +10,8 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import END, StateGraph
 
 from midas.config import DATA_DIR, GEMINI_API_KEY, LLM_MODEL, extract_llm_text
-from midas.models import CompanyNews, NegativeInfo, Foresight
+from midas.logging_config import get_agent_logger, AGENT_LOG_DIR
+from midas.models import CompanyNews, RiskInfo, Foresight
 from midas.tools.company_news_fetcher import fetch_company_news
 from midas.agents.foresight_manager import load_foresights
 
@@ -19,11 +19,8 @@ from midas.agents.foresight_manager import load_foresights
 # Logging Setup
 # =============================================================================
 
-LOG_DIR = DATA_DIR / "logs"
-LOG_DIR.mkdir(parents=True, exist_ok=True)
-
-logger = logging.getLogger("company_watcher")
-logger.setLevel(logging.DEBUG)
+# Logger will be initialized per-run with symbol suffix
+logger = None
 
 # =============================================================================
 # Constants
@@ -31,8 +28,8 @@ logger.setLevel(logging.DEBUG)
 
 WATCHER_DATA_DIR = DATA_DIR / "company_analysis"
 
-# Negative keywords for initial filtering
-NEGATIVE_KEYWORDS = [
+# Risk keywords for initial filtering
+RISK_KEYWORDS = [
     # Legal/Regulatory
     "lawsuit", "sued", "litigation", "investigation", "probe", "subpoena",
     "fraud", "violation", "penalty", "fine", "settlement", "indictment",
@@ -69,7 +66,7 @@ class LLMAnalysisResult(TypedDict):
 
 
 class WatcherState(TypedDict, total=False):
-    """State for the negative info watcher agent."""
+    """State for the risk info watcher agent."""
 
     symbol: str
     company_name: str
@@ -77,7 +74,7 @@ class WatcherState(TypedDict, total=False):
     filtered_news: list[CompanyNews]
     keyword_matches: dict[str, list[str]]  # url -> matched keywords
     llm_analysis_results: list[LLMAnalysisResult]  # All LLM analysis results
-    negative_info: list[NegativeInfo]
+    risk_info: list[RiskInfo]
     risk_summary: str | None
     saved_path: str | None
     log_path: str | None
@@ -207,8 +204,8 @@ async def pre_filter_news(state: WatcherState) -> WatcherState:
         state["filtered_news"] = []
         return state
 
-    logger.info("Pre-filtering news for negative keywords...")
-    print("Pre-filtering news for negative keywords...")
+    logger.info("Pre-filtering news for risk keywords...")
+    print("Pre-filtering news for risk keywords...")
 
     filtered: list[CompanyNews] = []
     keyword_matches: dict[str, list[str]] = {}  # url -> matched keywords
@@ -217,8 +214,8 @@ async def pre_filter_news(state: WatcherState) -> WatcherState:
         text = f"{news.title} {news.snippet}".lower()
         matched = []
 
-        # Check for negative keywords
-        for keyword in NEGATIVE_KEYWORDS:
+        # Check for risk keywords
+        for keyword in RISK_KEYWORDS:
             if keyword.lower() in text:
                 matched.append(keyword)
 
@@ -229,8 +226,8 @@ async def pre_filter_news(state: WatcherState) -> WatcherState:
 
     state["filtered_news"] = filtered
     state["keyword_matches"] = keyword_matches
-    logger.info(f"Pre-filtered: {len(filtered)} potentially negative items")
-    print(f"Pre-filtered: {len(filtered)} potentially negative items")
+    logger.info(f"Pre-filtered: {len(filtered)} potentially risky items")
+    print(f"Pre-filtered: {len(filtered)} potentially risky items")
     return state
 
 
@@ -251,10 +248,10 @@ async def _analyze_batch(
     llm: ChatGoogleGenerativeAI,
     news_batch: list[CompanyNews],
     keyword_matches: dict[str, list[str]],
-) -> tuple[list[LLMAnalysisResult], list[NegativeInfo]]:
+) -> tuple[list[LLMAnalysisResult], list[RiskInfo]]:
     """Analyze a batch of news items with a single LLM call."""
     llm_results: list[LLMAnalysisResult] = []
-    negative_items: list[NegativeInfo] = []
+    risk_items: list[RiskInfo] = []
 
     # Build batch prompt
     articles_text = "\n\n".join(
@@ -307,7 +304,7 @@ async def _analyze_batch(
                     )
 
                     if is_negative:
-                        negative_info = NegativeInfo(
+                        risk_info = RiskInfo(
                             category=category or "other",
                             severity=severity or "medium",
                             title=news.title,
@@ -317,19 +314,19 @@ async def _analyze_batch(
                             published=news.published,
                             potential_impact=summary or "",
                         )
-                        negative_items.append(negative_info)
+                        risk_items.append(risk_info)
 
                         severity_emoji = {
                             "low": "🟡",
                             "medium": "🟠",
                             "high": "🔴",
                             "critical": "⚫",
-                        }.get(negative_info.severity, "⚪")
+                        }.get(risk_info.severity, "⚪")
 
-                        logger.info(f"NEGATIVE: [{severity}] [{category}] {news.title}")
+                        logger.info(f"RISK: [{severity}] [{category}] {news.title}")
                         print(f"  {severity_emoji} [{category}] {news.title[:50]}...")
                     else:
-                        logger.debug(f"NOT NEGATIVE: {news.title[:60]}... | Reason: {summary}")
+                        logger.debug(f"NOT RISKY: {news.title[:60]}... | Reason: {summary}")
                 else:
                     # No result for this item
                     llm_results.append(
@@ -368,33 +365,33 @@ async def _analyze_batch(
                 )
             )
 
-    return llm_results, negative_items
+    return llm_results, risk_items
 
 
-async def analyze_negative_news(state: WatcherState) -> WatcherState:
-    """Use LLM to analyze and categorize negative news (batch processing)."""
+async def analyze_risk_news(state: WatcherState) -> WatcherState:
+    """Use LLM to analyze and categorize risk news (batch processing)."""
     if state.get("error"):
-        state["negative_info"] = []
+        state["risk_info"] = []
         state["llm_analysis_results"] = []
         return state
 
     # If no filtered news, nothing to analyze
     if not state.get("filtered_news"):
-        logger.info("No potentially negative news to analyze")
-        print("No potentially negative news to analyze")
-        state["negative_info"] = []
+        logger.info("No potentially risky news to analyze")
+        print("No potentially risky news to analyze")
+        state["risk_info"] = []
         state["llm_analysis_results"] = []
         return state
 
     filtered_news = state["filtered_news"]
     keyword_matches = state.get("keyword_matches", {})
     llm_results: list[LLMAnalysisResult] = []
-    negative_items: list[NegativeInfo] = []
+    risk_items: list[RiskInfo] = []
 
     # Calculate number of API calls needed
     num_batches = (len(filtered_news) + LLM_BATCH_SIZE - 1) // LLM_BATCH_SIZE
     logger.info(f"Analyzing {len(filtered_news)} items in {num_batches} batch(es)...")
-    print(f"Analyzing negative news with LLM ({num_batches} API call(s))...")
+    print(f"Analyzing risky news with LLM ({num_batches} API call(s))...")
 
     if not GEMINI_API_KEY:
         logger.warning("No API key, using keyword-based analysis only")
@@ -414,8 +411,8 @@ async def analyze_negative_news(state: WatcherState) -> WatcherState:
                     error=None,
                 )
             )
-            negative_items.append(
-                NegativeInfo(
+            risk_items.append(
+                RiskInfo(
                     category="other",
                     severity="medium",
                     title=news.title,
@@ -427,7 +424,7 @@ async def analyze_negative_news(state: WatcherState) -> WatcherState:
                 )
             )
         state["llm_analysis_results"] = llm_results
-        state["negative_info"] = negative_items
+        state["risk_info"] = risk_items
         return state
 
     llm = ChatGoogleGenerativeAI(model=LLM_MODEL, google_api_key=GEMINI_API_KEY)
@@ -438,24 +435,24 @@ async def analyze_negative_news(state: WatcherState) -> WatcherState:
         batch_num = batch_idx // LLM_BATCH_SIZE + 1
         logger.info(f"Processing batch {batch_num}/{num_batches} ({len(batch)} items)")
 
-        batch_results, batch_negative = await _analyze_batch(llm, batch, keyword_matches)
+        batch_results, batch_risks = await _analyze_batch(llm, batch, keyword_matches)
         llm_results.extend(batch_results)
-        negative_items.extend(batch_negative)
+        risk_items.extend(batch_risks)
 
     # Sort by severity (critical first)
     severity_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
-    negative_items.sort(key=lambda x: severity_order.get(x.severity, 4))
+    risk_items.sort(key=lambda x: severity_order.get(x.severity, 4))
 
     state["llm_analysis_results"] = llm_results
-    state["negative_info"] = negative_items
-    logger.info(f"Analysis complete: {len(negative_items)} negative / {len(llm_results)} total")
-    print(f"Found {len(negative_items)} negative information items")
+    state["risk_info"] = risk_items
+    logger.info(f"Analysis complete: {len(risk_items)} risks / {len(llm_results)} total")
+    print(f"Found {len(risk_items)} risk information items")
     return state
 
 
 async def generate_risk_summary(state: WatcherState) -> WatcherState:
     """Generate overall risk summary."""
-    if state.get("error") or not state.get("negative_info"):
+    if state.get("error") or not state.get("risk_info"):
         state["risk_summary"] = None
         return state
 
@@ -464,9 +461,9 @@ async def generate_risk_summary(state: WatcherState) -> WatcherState:
     if not GEMINI_API_KEY:
         # Generate basic summary
         critical_count = sum(
-            1 for n in state["negative_info"] if n.severity == "critical"
+            1 for n in state["risk_info"] if n.severity == "critical"
         )
-        high_count = sum(1 for n in state["negative_info"] if n.severity == "high")
+        high_count = sum(1 for n in state["risk_info"] if n.severity == "high")
 
         if critical_count > 0:
             level = "CRITICAL"
@@ -477,7 +474,7 @@ async def generate_risk_summary(state: WatcherState) -> WatcherState:
 
         state["risk_summary"] = (
             f"Risk Level: {level}. "
-            f"Found {len(state['negative_info'])} negative items "
+            f"Found {len(state['risk_info'])} risk items "
             f"({critical_count} critical, {high_count} high severity)."
         )
         return state
@@ -489,7 +486,7 @@ async def generate_risk_summary(state: WatcherState) -> WatcherState:
         issues = "\n".join(
             [
                 f"- [{n.severity.upper()}] [{n.category}] {n.title}"
-                for n in state["negative_info"][:15]
+                for n in state["risk_info"][:15]
             ]
         )
 
@@ -525,7 +522,7 @@ def save_results(state: WatcherState) -> WatcherState:
 
     # Create filename
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filepath = WATCHER_DATA_DIR / f"negative_info_{state['symbol']}_{timestamp}.json"
+    filepath = WATCHER_DATA_DIR / f"risk_info_{state['symbol']}_{timestamp}.json"
 
     # Convert pre-filtered news to serializable format
     pre_filtered_news = [
@@ -550,12 +547,12 @@ def save_results(state: WatcherState) -> WatcherState:
             "total_news_scanned": len(state.get("all_news", [])),
             "pre_filtered_count": len(state.get("filtered_news", [])),
             "llm_analyzed_count": len(state.get("llm_analysis_results", [])),
-            "negative_found_count": len(state.get("negative_info", [])),
+            "risk_found_count": len(state.get("risk_info", [])),
         },
         "pre_filtered_news": pre_filtered_news,
         "llm_analysis_results": state.get("llm_analysis_results", []),
-        "negative_info": [
-            info.model_dump(mode="json") for info in state.get("negative_info", [])
+        "risk_info": [
+            info.model_dump(mode="json") for info in state.get("risk_info", [])
         ],
         "log_path": state.get("log_path"),
     }
@@ -575,13 +572,13 @@ def save_results(state: WatcherState) -> WatcherState:
 
 
 def create_agent() -> StateGraph:
-    """Create the negative info watcher agent graph."""
+    """Create the risk info watcher agent graph."""
     workflow = StateGraph(WatcherState)
 
     # Add nodes
     workflow.add_node("fetch_info", fetch_company_info)
     workflow.add_node("pre_filter", pre_filter_news)
-    workflow.add_node("analyze", analyze_negative_news)
+    workflow.add_node("analyze", analyze_risk_news)
     workflow.add_node("summarize", generate_risk_summary)
     workflow.add_node("save", save_results)
 
@@ -596,8 +593,8 @@ def create_agent() -> StateGraph:
     return workflow.compile()
 
 
-def _setup_file_logging(symbol: str) -> str:
-    """Set up file logging for this run.
+def _setup_logging(symbol: str) -> str:
+    """Set up logging for this run.
 
     Args:
         symbol: Stock ticker symbol
@@ -605,39 +602,21 @@ def _setup_file_logging(symbol: str) -> str:
     Returns:
         Path to log file
     """
-    # Clear any existing handlers
-    for handler in logger.handlers[:]:
-        logger.removeHandler(handler)
+    global logger
+    logger = get_agent_logger("company_watcher", suffix=symbol)
 
-    # Create log file path
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_path = LOG_DIR / f"negative_info_{symbol}_{timestamp}.log"
+    # Get the log file path from the handler
+    log_path = None
+    for handler in logger.handlers:
+        if hasattr(handler, 'baseFilename'):
+            log_path = handler.baseFilename
+            break
 
-    # File handler for detailed logging
-    file_handler = logging.FileHandler(log_path, encoding="utf-8")
-    file_handler.setLevel(logging.DEBUG)
-    file_formatter = logging.Formatter(
-        "%(asctime)s | %(levelname)-8s | %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
-    file_handler.setFormatter(file_formatter)
-    logger.addHandler(file_handler)
-
-    # Console handler for info level
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.INFO)
-    console_formatter = logging.Formatter("%(levelname)s: %(message)s")
-    console_handler.setFormatter(console_formatter)
-    logger.addHandler(console_handler)
-
-    logger.info(f"=== Negative Info Watcher: {symbol} ===")
-    logger.info(f"Log file: {log_path}")
-
-    return str(log_path)
+    return log_path or str(AGENT_LOG_DIR / f"company_watcher_{symbol}.log")
 
 
 async def run_agent(symbol: str) -> WatcherState:
-    """Run the negative info watcher agent.
+    """Run the risk info watcher agent.
 
     Args:
         symbol: Stock ticker symbol to monitor
@@ -647,8 +626,8 @@ async def run_agent(symbol: str) -> WatcherState:
     """
     symbol = symbol.upper()
 
-    # Set up file logging
-    log_path = _setup_file_logging(symbol)
+    # Set up logging
+    log_path = _setup_logging(symbol)
 
     agent = create_agent()
 
@@ -659,7 +638,7 @@ async def run_agent(symbol: str) -> WatcherState:
         "filtered_news": [],
         "keyword_matches": {},
         "llm_analysis_results": [],
-        "negative_info": [],
+        "risk_info": [],
         "risk_summary": None,
         "saved_path": None,
         "log_path": log_path,
@@ -679,7 +658,7 @@ def format_results(state: WatcherState) -> str:
 
     lines = [
         f"\n{'=' * 70}",
-        f"Negative Information Report: {state['company_name']} ({state['symbol']})",
+        f"Risk Information Report: {state['company_name']} ({state['symbol']})",
         f"{'=' * 70}",
     ]
 
@@ -687,26 +666,26 @@ def format_results(state: WatcherState) -> str:
     total_news = len(state.get("all_news", []))
     pre_filtered = len(state.get("filtered_news", []))
     llm_analyzed = len(state.get("llm_analysis_results", []))
-    negative_found = len(state.get("negative_info", []))
+    risk_found = len(state.get("risk_info", []))
 
     lines.append(f"\n📈 STATISTICS:")
     lines.append(f"   Total news scanned: {total_news}")
     lines.append(f"   Pre-filtered (keyword match): {pre_filtered}")
     lines.append(f"   LLM analyzed: {llm_analyzed}")
-    lines.append(f"   Negative found: {negative_found}")
+    lines.append(f"   Risk found: {risk_found}")
 
     if state.get("risk_summary"):
         lines.append(f"\n📊 RISK SUMMARY:")
         lines.append(f"   {state['risk_summary']}")
 
-    if not state.get("negative_info"):
-        lines.append("\n✅ No significant negative information found.")
+    if not state.get("risk_info"):
+        lines.append("\n✅ No significant risk information found.")
     else:
-        lines.append(f"\n⚠️  NEGATIVE INFORMATION ({len(state['negative_info'])} items):")
+        lines.append(f"\n⚠️  RISK INFORMATION ({len(state['risk_info'])} items):")
 
         # Group by severity
-        by_severity: dict[str, list[NegativeInfo]] = {}
-        for info in state["negative_info"]:
+        by_severity: dict[str, list[RiskInfo]] = {}
+        for info in state["risk_info"]:
             by_severity.setdefault(info.severity, []).append(info)
 
         for severity in ["critical", "high", "medium", "low"]:
@@ -911,7 +890,7 @@ Analyze this company for a potential BUY decision."""
 async def analyze_for_hold(symbol: str) -> dict:
     """Analyze a held company for hold/sell decision.
 
-    This extends the negative info analysis with additional hold-specific checks.
+    This extends the risk info analysis with additional hold-specific checks.
 
     Args:
         symbol: Stock ticker symbol
@@ -927,20 +906,20 @@ async def analyze_for_hold(symbol: str) -> dict:
         "analysis_type": "hold",
         "analyzed_at": datetime.now().isoformat(),
         "company_info": {},
-        "negative_info_summary": None,
+        "risk_info_summary": None,
         "analysis": None,
         "error": None,
     }
 
     try:
-        # First run negative info analysis
-        negative_state = await run_agent(symbol)
-        result["negative_info_summary"] = {
-            "total_news": len(negative_state.get("all_news", [])),
-            "negative_count": len(negative_state.get("negative_info", [])),
-            "risk_summary": negative_state.get("risk_summary"),
+        # First run risk info analysis
+        risk_state = await run_agent(symbol)
+        result["risk_info_summary"] = {
+            "total_news": len(risk_state.get("all_news", [])),
+            "risk_count": len(risk_state.get("risk_info", [])),
+            "risk_summary": risk_state.get("risk_summary"),
             "critical_issues": [
-                n.title for n in negative_state.get("negative_info", [])
+                n.title for n in risk_state.get("risk_info", [])
                 if n.severity in ("critical", "high")
             ][:5],
         }
@@ -975,9 +954,9 @@ async def analyze_for_hold(symbol: str) -> dict:
 
         llm = ChatGoogleGenerativeAI(model=LLM_MODEL, google_api_key=GEMINI_API_KEY)
 
-        # Prepare negative info text
-        negative_text = "None found" if not result["negative_info_summary"]["critical_issues"] else "\n".join([
-            f"- {issue}" for issue in result["negative_info_summary"]["critical_issues"]
+        # Prepare risk info text
+        risk_text = "None found" if not result["risk_info_summary"]["critical_issues"] else "\n".join([
+            f"- {issue}" for issue in result["risk_info_summary"]["critical_issues"]
         ])
 
         prompt = f"""Company: {company_info['name']} ({symbol})
@@ -990,10 +969,10 @@ Financial Metrics:
 - 52-Week High: ${company_info['52w_high']}
 - Price vs 52W High: {company_info['price_to_52w_high_pct']:.1f}% if company_info['price_to_52w_high_pct'] else 'N/A'
 
-Recent Negative Information:
-{negative_text}
+Recent Risk Information:
+{risk_text}
 
-Risk Summary: {result['negative_info_summary']['risk_summary'] or 'No significant risks found'}
+Risk Summary: {result['risk_info_summary']['risk_summary'] or 'No significant risks found'}
 
 Analyze whether to HOLD or SELL this position."""
 

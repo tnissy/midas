@@ -24,11 +24,18 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import END, StateGraph
 
 from midas.config import DATA_DIR, GEMINI_API_KEY, LLM_MODEL, extract_llm_text
+from midas.logging_config import get_agent_logger
 from midas.models import WatcherType
 from midas.tools.feedback_loader import get_suggested_keywords_for_watcher
 
 # Watcher type for feedback loading
 WATCHER_TYPE = WatcherType.PREDICTION_MONITOR
+
+# =============================================================================
+# Logging Setup
+# =============================================================================
+
+logger = get_agent_logger("prediction_monitor")
 
 # =============================================================================
 # Constants
@@ -170,7 +177,7 @@ async def search_google_news(
             )
 
     except Exception as e:
-        print(f"  Error searching '{search_query[:50]}': {e}")
+        logger.warning(f"Error searching '{search_query[:50]}': {e}")
 
     return articles
 
@@ -298,7 +305,7 @@ async def collect_articles(state: FarseerState) -> FarseerState:
     year = state.get("year", datetime.now().year)
     include_watchers = state.get("include_watchers", True)
 
-    print(f"Collecting articles for {year} outlook...")
+    logger.info(f"Collecting articles for {year} outlook...")
     all_articles: list[Article] = []
 
     # Google News search
@@ -309,31 +316,31 @@ async def collect_articles(state: FarseerState) -> FarseerState:
     # Add dynamic keywords from insights
     dynamic_keywords = get_suggested_keywords_for_watcher(WATCHER_TYPE)
     if dynamic_keywords:
-        print(f"  Adding {len(dynamic_keywords)} dynamic keywords from insights")
+        logger.info(f"Adding {len(dynamic_keywords)} dynamic keywords from insights")
         for kw in dynamic_keywords:
             outlook_queries.append(f"{year} {kw}")
 
     for query in outlook_queries[:3]:
-        print(f"  Searching: '{query}'...")
+        logger.debug(f"Searching: '{query}'...")
         articles = await search_google_news(query, max_results=30)
         all_articles.extend(articles)
-        print(f"    Found {len(articles)} articles")
+        logger.debug(f"Found {len(articles)} articles")
 
     # Site-specific searches
     key_sites = ["mckinsey.com", "bcg.com", "economist.com", "weforum.org", "gartner.com"]
     for site in key_sites:
         query = f"{year} outlook OR {year} predictions OR trends"
-        print(f"  Searching site:{site}...")
+        logger.debug(f"Searching site:{site}...")
         articles = await search_google_news(query, site=site, max_results=10)
         all_articles.extend(articles)
-        print(f"    Found {len(articles)} articles")
+        logger.debug(f"Found {len(articles)} articles")
 
     # Load news watcher results
     if include_watchers:
-        print("  Loading news watcher results...")
+        logger.info("Loading news watcher results...")
         watcher_articles = load_watcher_news(days_back=30)
         all_articles.extend(watcher_articles)
-        print(f"    Found {len(watcher_articles)} articles from watchers")
+        logger.info(f"Found {len(watcher_articles)} articles from watchers")
 
     # Deduplicate
     seen_urls: set[str] = set()
@@ -344,7 +351,7 @@ async def collect_articles(state: FarseerState) -> FarseerState:
             unique_articles.append(article)
 
     state["articles"] = unique_articles
-    print(f"Total: {len(unique_articles)} unique articles")
+    logger.info(f"Total: {len(unique_articles)} unique articles")
 
     # Save raw articles
     if unique_articles:
@@ -359,7 +366,7 @@ async def collect_articles(state: FarseerState) -> FarseerState:
                 ensure_ascii=False,
                 indent=2,
             )
-        print(f"Articles saved: {filepath}")
+        logger.info(f"Articles saved: {filepath}")
 
     return state
 
@@ -371,7 +378,7 @@ async def analyze_articles(state: FarseerState) -> FarseerState:
         state["error"] = "No articles to analyze"
         return state
 
-    print("Analyzing articles (single LLM call)...")
+    logger.info("Analyzing articles (single LLM call)...")
 
     if not GEMINI_API_KEY:
         state["error"] = "No API key"
@@ -456,15 +463,15 @@ async def analyze_articles(state: FarseerState) -> FarseerState:
 
                 state["report"] = report
 
-                # Print progress
-                print(f"  Predictions extracted: {len(predictions)}")
+                # Log progress
+                logger.info(f"Predictions extracted: {len(predictions)}")
 
-                # Show sample predictions
+                # Log sample predictions
                 for change in social_changes[:10]:
-                    print(f"    [{change.get('category', '?')}] {change.get('title', '')}")
+                    logger.debug(f"[{change.get('category', '?')}] {change.get('title', '')}")
 
     except Exception as e:
-        print(f"Error: {e}")
+        logger.error(f"Error: {e}")
         state["error"] = str(e)
 
     return state
@@ -475,7 +482,7 @@ def save_report(state: FarseerState) -> FarseerState:
     if not state.get("report"):
         return state
 
-    print("Saving report...")
+    logger.info("Saving report...")
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
 
     year = state.get("year", datetime.now().year)
@@ -486,7 +493,7 @@ def save_report(state: FarseerState) -> FarseerState:
         json.dump(state["report"], f, ensure_ascii=False, indent=2)
 
     state["report_path"] = str(filepath)
-    print(f"Report saved: {filepath}")
+    logger.info(f"Report saved: {filepath}")
 
     return state
 
@@ -569,7 +576,7 @@ async def expand_sources() -> list[dict]:
                 return result.get("suggestions", [])
 
     except Exception as e:
-        print(f"Error: {e}")
+        logger.error(f"Error: {e}")
 
     return []
 

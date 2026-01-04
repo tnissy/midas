@@ -23,13 +23,13 @@ Midas/
 │   └── settings.local.json          # 権限設定
 ├── data/                            # データ保存ディレクトリ
 │   ├── company_analysis/            # 企業分析結果
-│   ├── future_insights/             # 未来洞察レポート（prediction_monitor/と同義）
+│   ├── foresights/                  # 未来洞察レポート
 │   ├── general/                     # 一般ニュース
 │   ├── logs/                        # 実行ログ
 │   ├── news/                        # ニュースキャッシュ
 │   ├── other_gov/                   # 米国以外政府ニュース
 │   ├── portfolio/                   # ポートフォリオデータ
-│   ├── prediction_analysis/         # 予測分析結果
+│   ├── prediction_monitor/          # 年次展望記事分析結果
 │   ├── tech/                        # 技術ニュース
 │   └── us_gov/                      # 米国政府ニュース
 ├── docs/
@@ -165,7 +165,7 @@ Midas/
 | `PriceEvent` | 重要な株価イベント |
 | `CompanyNews` | 企業関連ニュース |
 | `PriceEventAnalysis` | 株価イベント分析結果 |
-| `NegativeInfo` | ネガティブ情報 |
+| `RiskInfo` | リスク情報 |
 | `CompanyAnalysis` | 企業総合分析 |
 
 #### ポートフォリオ管理モデル
@@ -272,7 +272,7 @@ class AgentState(TypedDict):
 └──────┘      └───────────────┘      └─────────┘      └──────┘      └─────┘
 ```
 
-### future_insight_agent
+### foresight_manager
 
 **役割**: 収集したニュースから未来シグナルと投資テーマを抽出
 

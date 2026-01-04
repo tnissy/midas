@@ -12,7 +12,6 @@ from typing import TypedDict
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langgraph.graph import END, StateGraph
 
 from midas.config import extract_llm_text, DATA_DIR, GEMINI_API_KEY, LLM_MODEL
 from midas.logging_config import (
@@ -251,37 +250,15 @@ def save_analysis_node(state: AgentState) -> AgentState:
 
 
 # =============================================================================
-# Agent Graph
+# Simplified Agent Runner (no StateGraph)
 # =============================================================================
-
-
-def create_agent() -> StateGraph:
-    """Create the portfolio analyzer agent graph."""
-    workflow = StateGraph(AgentState)
-
-    # Add nodes
-    workflow.add_node("load", load_portfolio_node)
-    workflow.add_node("update_prices", update_prices_node)
-    workflow.add_node("analyze", analyze_portfolio_node)
-    workflow.add_node("save", save_analysis_node)
-
-    # Define edges
-    workflow.set_entry_point("load")
-    workflow.add_edge("load", "update_prices")
-    workflow.add_edge("update_prices", "analyze")
-    workflow.add_edge("analyze", "save")
-    workflow.add_edge("save", END)
-
-    return workflow.compile()
 
 
 async def run_agent() -> AgentState:
     """Run the portfolio analyzer agent."""
     log_agent_start(logger, "portfolio_manager")
 
-    agent = create_agent()
-
-    initial_state: AgentState = {
+    state: AgentState = {
         "portfolio": None,
         "price_updated": False,
         "analysis": None,
@@ -291,29 +268,40 @@ async def run_agent() -> AgentState:
     }
 
     try:
-        result = await agent.ainvoke(initial_state)
+        # Step 1: Load portfolio
+        state = await load_portfolio_node(state)
+
+        # Step 2: Update prices
+        state = await update_prices_node(state)
+
+        # Step 3: Analyze
+        state = await analyze_portfolio_node(state)
+
+        # Step 4: Save
+        state = save_analysis_node(state)
 
         # Print summary
-        if result.get("error"):
-            logger.info(f"\nError: {result['error']}")
+        if state.get("error"):
+            logger.info(f"\nError: {state['error']}")
         else:
             logger.info("\n" + "=" * 60)
             logger.info("Portfolio Analysis Complete")
             logger.info("=" * 60)
-            if result.get("portfolio"):
-                logger.info(generate_portfolio_report(result["portfolio"]))
+            if state.get("portfolio"):
+                logger.info(generate_portfolio_report(state["portfolio"]))
 
-            if result.get("recommendations"):
+            if state.get("recommendations"):
                 logger.info("\nRecommendations:")
-                for i, rec in enumerate(result["recommendations"], 1):
+                for i, rec in enumerate(state["recommendations"], 1):
                     logger.info(f"  {i}. {rec}")
 
-            if result.get("report_path"):
-                logger.info(f"\nFull report saved to: {result['report_path']}")
+            if state.get("report_path"):
+                logger.info(f"\nFull report saved to: {state['report_path']}")
 
-        error = result.get("error")
-        log_agent_end(logger, "portfolio_manager", result, error)
-        return result
+        error = state.get("error")
+        log_agent_end(logger, "portfolio_manager", state, error)
+        return state
+
     except Exception as e:
         logger.exception("Unhandled exception in portfolio_manager")
         log_agent_end(logger, "portfolio_manager", None, str(e))
