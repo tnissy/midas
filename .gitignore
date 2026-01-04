@@ -37,5 +37,10 @@ ENV/
 # Data (fetched news and cache files)
 data/**/*.json
 
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+
 # Misc
 .DS_Store
