@@ -35,7 +35,7 @@ ENV/
 *.swo
 
 # Data (fetched news and cache files)
-data/**/*.json
+data/
 
 # Testing
 .coverage
