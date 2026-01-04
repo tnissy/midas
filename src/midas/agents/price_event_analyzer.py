@@ -7,7 +7,6 @@ from typing import TypedDict
 import yfinance as yf
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langgraph.graph import END, StateGraph
 
 from midas.config import extract_llm_text, DATA_DIR, GEMINI_API_KEY, LLM_MODEL
 from midas.logging_config import get_agent_logger
@@ -343,28 +342,8 @@ def save_results(state: AnalyzerState) -> AnalyzerState:
 
 
 # =============================================================================
-# Agent Graph
+# Agent Runner
 # =============================================================================
-
-
-def create_agent() -> StateGraph:
-    """Create the price event analyzer agent graph."""
-    workflow = StateGraph(AnalyzerState)
-
-    # Add nodes
-    workflow.add_node("fetch_prices", fetch_price_data)
-    workflow.add_node("fetch_news", fetch_related_news)
-    workflow.add_node("analyze", analyze_events)
-    workflow.add_node("save", save_results)
-
-    # Define edges
-    workflow.set_entry_point("fetch_prices")
-    workflow.add_edge("fetch_prices", "fetch_news")
-    workflow.add_edge("fetch_news", "analyze")
-    workflow.add_edge("analyze", "save")
-    workflow.add_edge("save", END)
-
-    return workflow.compile()
 
 
 async def run_agent(symbol: str) -> AnalyzerState:
@@ -376,9 +355,7 @@ async def run_agent(symbol: str) -> AnalyzerState:
     Returns:
         Analysis results
     """
-    agent = create_agent()
-
-    initial_state: AnalyzerState = {
+    state: AnalyzerState = {
         "symbol": symbol.upper(),
         "company_name": "",
         "price_events": [],
@@ -388,8 +365,13 @@ async def run_agent(symbol: str) -> AnalyzerState:
         "error": None,
     }
 
-    result = await agent.ainvoke(initial_state)
-    return result
+    # Execute pipeline steps sequentially
+    state = await fetch_price_data(state)
+    state = await fetch_related_news(state)
+    state = await analyze_events(state)
+    state = await save_results(state)
+
+    return state
 
 
 def format_analysis(state: AnalyzerState) -> str:

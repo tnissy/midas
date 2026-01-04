@@ -12,7 +12,6 @@ from typing import TypedDict
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langgraph.graph import END, StateGraph
 
 from midas.config import DATA_DIR, GEMINI_API_KEY, LLM_MODEL, extract_llm_text
 from midas.logging_config import get_agent_logger
@@ -415,28 +414,8 @@ def save_results(state: FinderState) -> FinderState:
 
 
 # =============================================================================
-# Agent Graph
+# Agent Runner
 # =============================================================================
-
-
-def create_agent() -> StateGraph:
-    """Create the critical company finder agent graph."""
-    workflow = StateGraph(FinderState)
-
-    # Add nodes (3-step value chain analysis)
-    workflow.add_node("decompose", decompose_value_chain)
-    workflow.add_node("find_companies", find_companies_per_layer)
-    workflow.add_node("synthesize", synthesize_analysis)
-    workflow.add_node("save", save_results)
-
-    # Define edges
-    workflow.set_entry_point("decompose")
-    workflow.add_edge("decompose", "find_companies")
-    workflow.add_edge("find_companies", "synthesize")
-    workflow.add_edge("synthesize", "save")
-    workflow.add_edge("save", END)
-
-    return workflow.compile()
 
 
 async def run_agent(prediction: str) -> FinderState:
@@ -448,9 +427,7 @@ async def run_agent(prediction: str) -> FinderState:
     Returns:
         Analysis results including critical companies
     """
-    agent = create_agent()
-
-    initial_state: FinderState = {
+    state: FinderState = {
         "prediction": prediction,
         "time_horizon": "medium",
         "value_chain_layers": [],
@@ -460,8 +437,13 @@ async def run_agent(prediction: str) -> FinderState:
         "error": None,
     }
 
-    result = await agent.ainvoke(initial_state)
-    return result
+    # Execute pipeline steps sequentially
+    state = await decompose_value_chain(state)
+    state = await find_companies_per_layer(state)
+    state = await synthesize_analysis(state)
+    state = await save_results(state)
+
+    return state
 
 
 def format_analysis(state: FinderState) -> str:

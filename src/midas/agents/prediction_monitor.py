@@ -21,7 +21,6 @@ import feedparser
 import httpx
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langgraph.graph import END, StateGraph
 
 from midas.config import DATA_DIR, GEMINI_API_KEY, LLM_MODEL, extract_llm_text
 from midas.logging_config import get_agent_logger
@@ -499,24 +498,8 @@ def save_report(state: FarseerState) -> FarseerState:
 
 
 # =============================================================================
-# Agent Graph
+# Agent Runner
 # =============================================================================
-
-
-def create_agent() -> StateGraph:
-    """Create the Farseer agent graph."""
-    workflow = StateGraph(FarseerState)
-
-    workflow.add_node("collect", collect_articles)
-    workflow.add_node("analyze", analyze_articles)
-    workflow.add_node("save", save_report)
-
-    workflow.set_entry_point("collect")
-    workflow.add_edge("collect", "analyze")
-    workflow.add_edge("analyze", "save")
-    workflow.add_edge("save", END)
-
-    return workflow.compile()
 
 
 async def run_scan(year: int | None = None, include_watchers: bool = True) -> FarseerState:
@@ -529,9 +512,7 @@ async def run_scan(year: int | None = None, include_watchers: bool = True) -> Fa
     Returns:
         FarseerState with report
     """
-    agent = create_agent()
-
-    initial_state: FarseerState = {
+    state: FarseerState = {
         "year": year or datetime.now().year,
         "include_watchers": include_watchers,
         "articles": [],
@@ -540,7 +521,12 @@ async def run_scan(year: int | None = None, include_watchers: bool = True) -> Fa
         "error": None,
     }
 
-    return await agent.ainvoke(initial_state)
+    # Execute pipeline steps sequentially
+    state = await collect_articles(state)
+    state = await analyze_articles(state)
+    state = await save_report(state)
+
+    return state
 
 
 async def expand_sources() -> list[dict]:

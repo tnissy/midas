@@ -14,7 +14,6 @@ from typing import TypedDict
 import yfinance as yf
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langgraph.graph import END, StateGraph
 
 from midas.config import DATA_DIR, GEMINI_API_KEY, LLM_MODEL, extract_llm_text
 from midas.logging_config import get_agent_logger
@@ -616,30 +615,8 @@ def save_report(state: LearningState) -> LearningState:
 
 
 # =============================================================================
-# Agent Graph
+# Agent Runner
 # =============================================================================
-
-
-def create_agent() -> StateGraph:
-    """Create the learning agent graph."""
-    workflow = StateGraph(LearningState)
-
-    # Add nodes
-    workflow.add_node("scan", scan_extreme_movers)
-    workflow.add_node("fetch_details", fetch_case_details)
-    workflow.add_node("analyze", analyze_cases)
-    workflow.add_node("synthesize", synthesize_insights)
-    workflow.add_node("save", save_report)
-
-    # Define edges
-    workflow.set_entry_point("scan")
-    workflow.add_edge("scan", "fetch_details")
-    workflow.add_edge("fetch_details", "analyze")
-    workflow.add_edge("analyze", "synthesize")
-    workflow.add_edge("synthesize", "save")
-    workflow.add_edge("save", END)
-
-    return workflow.compile()
 
 
 async def run_agent(period: str = "month", max_cases: int = 20) -> LearningState:
@@ -652,9 +629,7 @@ async def run_agent(period: str = "month", max_cases: int = 20) -> LearningState
     Returns:
         Learning results including cases and insights
     """
-    agent = create_agent()
-
-    initial_state: LearningState = {
+    state: LearningState = {
         "period": period,
         "max_cases": max_cases,
         "up_movers": [],
@@ -666,8 +641,14 @@ async def run_agent(period: str = "month", max_cases: int = 20) -> LearningState
         "error": None,
     }
 
-    result = await agent.ainvoke(initial_state)
-    return result
+    # Execute pipeline steps sequentially
+    state = await scan_extreme_movers(state)
+    state = await fetch_case_details(state)
+    state = await analyze_cases(state)
+    state = await synthesize_insights(state)
+    state = await save_report(state)
+
+    return state
 
 
 def format_report(state: LearningState) -> str:

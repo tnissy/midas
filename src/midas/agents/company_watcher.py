@@ -7,7 +7,6 @@ from typing import TypedDict
 import yfinance as yf
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langgraph.graph import END, StateGraph
 
 from midas.config import DATA_DIR, GEMINI_API_KEY, LLM_MODEL, extract_llm_text
 from midas.logging_config import get_agent_logger, AGENT_LOG_DIR
@@ -567,30 +566,8 @@ def save_results(state: WatcherState) -> WatcherState:
 
 
 # =============================================================================
-# Agent Graph
+# Agent Runner
 # =============================================================================
-
-
-def create_agent() -> StateGraph:
-    """Create the risk info watcher agent graph."""
-    workflow = StateGraph(WatcherState)
-
-    # Add nodes
-    workflow.add_node("fetch_info", fetch_company_info)
-    workflow.add_node("pre_filter", pre_filter_news)
-    workflow.add_node("analyze", analyze_risk_news)
-    workflow.add_node("summarize", generate_risk_summary)
-    workflow.add_node("save", save_results)
-
-    # Define edges
-    workflow.set_entry_point("fetch_info")
-    workflow.add_edge("fetch_info", "pre_filter")
-    workflow.add_edge("pre_filter", "analyze")
-    workflow.add_edge("analyze", "summarize")
-    workflow.add_edge("summarize", "save")
-    workflow.add_edge("save", END)
-
-    return workflow.compile()
 
 
 def _setup_logging(symbol: str) -> str:
@@ -629,9 +606,7 @@ async def run_agent(symbol: str) -> WatcherState:
     # Set up logging
     log_path = _setup_logging(symbol)
 
-    agent = create_agent()
-
-    initial_state: WatcherState = {
+    state: WatcherState = {
         "symbol": symbol,
         "company_name": "",
         "all_news": [],
@@ -645,10 +620,15 @@ async def run_agent(symbol: str) -> WatcherState:
         "error": None,
     }
 
-    result = await agent.ainvoke(initial_state)
+    # Execute pipeline steps sequentially
+    state = await fetch_company_info(state)
+    state = await pre_filter_news(state)
+    state = await analyze_risk_news(state)
+    state = await generate_risk_summary(state)
+    state = await save_results(state)
 
     logger.info("=== Analysis Complete ===")
-    return result
+    return state
 
 
 def format_results(state: WatcherState) -> str:
