@@ -22,8 +22,22 @@ from langgraph.graph import END, StateGraph
 
 from midas.agents import prediction_monitor
 from midas.config import DATA_DIR, GEMINI_API_KEY, LLM_MODEL, extract_llm_text
+from midas.logging_config import (
+    get_agent_logger,
+    log_agent_start,
+    log_agent_end,
+    log_node_start,
+    log_node_end,
+    log_transition,
+)
 from midas.models import Foresight, ForesightSource, NewsItem
 from midas.tools.report_generator import save_report, generate_foresight_report
+
+# =============================================================================
+# Logging Setup
+# =============================================================================
+
+logger = get_agent_logger("foresight_manager")
 
 # =============================================================================
 # Constants
@@ -82,7 +96,7 @@ def load_foresights() -> list[Foresight]:
             data: ForesightStore = json.load(f)
         return [Foresight(**fs) for fs in data.get("foresights", [])]
     except Exception as e:
-        print(f"Error loading foresights: {e}")
+        logger.error(f"Error loading foresights: {e}")
         return []
 
 
@@ -172,7 +186,7 @@ def load_watcher_news(days_back: int = 7) -> list[NewsItem]:
                             continue
 
             except Exception as e:
-                print(f"  Error loading {filepath}: {e}")
+                logger.warning(f"Error loading {filepath}: {e}")
                 continue
 
     return news_items
@@ -190,7 +204,7 @@ def determine_mode(force_full: bool = False) -> str:
 
     foresights = load_foresights()
     if len(foresights) == 0:
-        print("No existing foresights. Using full mode.")
+        logger.info("No existing foresights. Using full mode.")
         return "full"
 
     # January = annual update
@@ -198,7 +212,7 @@ def determine_mode(force_full: bool = False) -> str:
     if now.month == 1:
         last_full = get_last_full_update()
         if last_full is None or last_full.year < now.year:
-            print(f"Annual update (January {now.year}). Using full mode.")
+            logger.info(f"Annual update (January {now.year}). Using full mode.")
             return "full"
 
     return "incremental"
@@ -274,19 +288,28 @@ IMPORTANT:
 
 def determine_mode_node(state: ForesightState) -> ForesightState:
     """Determine processing mode."""
+    log_node_start(logger, "determine_mode")
+
     mode = determine_mode(state.get("force_full", False))
     state["mode"] = mode
     state["existing_foresights"] = load_foresights()
-    print(f"Mode: {mode} (existing foresights: {len(state['existing_foresights'])})")
+    logger.info(f"Mode: {mode} (existing foresights: {len(state['existing_foresights'])})")
+
+    log_node_end(logger, "determine_mode")
+    log_transition(logger, "determine_mode", mode, condition=f"mode={mode}")
     return state
 
 
 async def run_full_mode(state: ForesightState) -> ForesightState:
     """Run full mode using prediction_monitor."""
+    log_node_start(logger, "full")
+
     if state.get("mode") != "full":
+        logger.info("Skipping full mode (mode is not 'full')")
+        log_node_end(logger, "full")
         return state
 
-    print("Running prediction_monitor for full foresight generation...")
+    logger.info("Running prediction_monitor for full foresight generation...")
 
     try:
         # Run prediction_monitor
@@ -302,7 +325,7 @@ async def run_full_mode(state: ForesightState) -> ForesightState:
 
         state["prediction_report"] = report
         predictions = report.get("social_changes", [])
-        print(f"Got {len(predictions)} predictions from prediction_monitor")
+        logger.info(f"Got {len(predictions)} predictions from prediction_monitor")
 
         if not predictions:
             state["error"] = "No predictions found"
@@ -401,29 +424,35 @@ Remember: Output exactly 5 foresights that capture the major investment themes."
                     foresights.append(foresight)
 
                 state["updated_foresights"] = foresights
-                print(f"Consolidated into {len(foresights)} foresights")
+                logger.info(f"Consolidated into {len(foresights)} foresights")
 
     except Exception as e:
-        print(f"Error in full mode: {e}")
+        logger.error(f"Error in full mode: {e}")
         state["error"] = str(e)
 
+    log_node_end(logger, "full")
+    log_transition(logger, "full", "save")
     return state
 
 
 async def run_incremental_mode(state: ForesightState) -> ForesightState:
     """Run incremental mode using news watchers."""
+    log_node_start(logger, "incremental")
+
     if state.get("mode") != "incremental":
+        logger.info("Skipping incremental mode (mode is not 'incremental')")
+        log_node_end(logger, "incremental")
         return state
 
-    print("Loading recent news for incremental update...")
+    logger.info("Loading recent news for incremental update...")
 
     # Load recent news
     news_items = load_watcher_news(days_back=7)
     state["news_items"] = news_items
-    print(f"Loaded {len(news_items)} structural news items")
+    logger.info(f"Loaded {len(news_items)} structural news items")
 
     if not news_items:
-        print("No new structural news. Keeping existing foresights.")
+        logger.info("No new structural news. Keeping existing foresights.")
         state["updated_foresights"] = state["existing_foresights"]
         return state
 
@@ -525,31 +554,39 @@ Analyze and update the foresights based on this news."""
 
                 summary = result.get("summary", "")
                 if summary:
-                    print(f"Update summary: {summary}")
-                print(f"Updated foresights: {len(updated_foresights)}")
+                    logger.info(f"Update summary: {summary}")
+                logger.info(f"Updated foresights: {len(updated_foresights)}")
 
     except Exception as e:
-        print(f"Error in incremental mode: {e}")
+        logger.error(f"Error in incremental mode: {e}")
         state["error"] = str(e)
         # Fall back to existing foresights
         state["updated_foresights"] = state["existing_foresights"]
 
+    log_node_end(logger, "incremental")
+    log_transition(logger, "incremental", "save")
     return state
 
 
 def save_results(state: ForesightState) -> ForesightState:
     """Save updated foresights to disk."""
+    log_node_start(logger, "save")
+
     foresights = state.get("updated_foresights", [])
 
     if not foresights:
-        print("No foresights to save.")
+        logger.warning("No foresights to save.")
+        log_node_end(logger, "save")
+        log_transition(logger, "save", "END")
         return state
 
     is_full = state.get("mode") == "full"
     filepath = save_foresights(foresights, is_full_update=is_full)
     state["saved_path"] = str(filepath)
-    print(f"Saved {len(foresights)} foresights to {filepath}")
+    logger.info(f"Saved {len(foresights)} foresights to {filepath}")
 
+    log_node_end(logger, "save")
+    log_transition(logger, "save", "END")
     return state
 
 
@@ -600,6 +637,8 @@ async def run_agent(force_full: bool = False) -> ForesightState:
     Returns:
         ForesightState with results
     """
+    log_agent_start(logger, "foresight_manager", {"force_full": force_full})
+
     agent = create_agent()
 
     initial_state: ForesightState = {
@@ -613,7 +652,15 @@ async def run_agent(force_full: bool = False) -> ForesightState:
         "error": None,
     }
 
-    return await agent.ainvoke(initial_state)
+    try:
+        final_state = await agent.ainvoke(initial_state)
+        error = final_state.get("error")
+        log_agent_end(logger, "foresight_manager", final_state, error)
+        return final_state
+    except Exception as e:
+        logger.exception("Unhandled exception in foresight_manager")
+        log_agent_end(logger, "foresight_manager", None, str(e))
+        raise
 
 
 # =============================================================================
@@ -697,7 +744,7 @@ def generate_report(executive_summary: str = "") -> Path:
     foresights = load_foresights()
 
     if not foresights:
-        print("No foresights available. Run 'midas foresight scan' first.")
+        logger.warning("No foresights available. Run 'midas foresight scan' first.")
         return None
 
     # Convert Foresight objects to dicts for report generator
@@ -731,6 +778,6 @@ def generate_report(executive_summary: str = "") -> Path:
 
     # Save report
     report_path = save_report(content, "foresight")
-    print(f"Report saved to: {report_path}")
+    logger.info(f"Report saved to: {report_path}")
 
     return report_path

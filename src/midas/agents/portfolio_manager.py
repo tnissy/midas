@@ -15,6 +15,14 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import END, StateGraph
 
 from midas.config import extract_llm_text, DATA_DIR, GEMINI_API_KEY, LLM_MODEL
+from midas.logging_config import (
+    get_agent_logger,
+    log_agent_start,
+    log_agent_end,
+    log_node_start,
+    log_node_end,
+    log_transition,
+)
 from midas.models import Portfolio
 from midas.tools.portfolio_manager import (
     generate_portfolio_report,
@@ -27,6 +35,9 @@ from midas.tools.report_generator import (
     save_report,
     generate_portfolio_report as generate_portfolio_md_report,
 )
+
+# Logger setup
+logger = get_agent_logger("portfolio_manager")
 
 # Path for foresight analysis results
 PREDICTION_ANALYSIS_DIR = DATA_DIR / "prediction_analysis"
@@ -98,7 +109,8 @@ Respond in Japanese.
 
 async def load_portfolio_node(state: AgentState) -> AgentState:
     """Load portfolio from file."""
-    print("Loading portfolio...")
+    log_node_start(logger, "load")
+    logger.info("Loading portfolio...")
     try:
         portfolio = load_portfolio()
         if not portfolio.holdings:
@@ -106,48 +118,58 @@ async def load_portfolio_node(state: AgentState) -> AgentState:
             state["portfolio"] = None
         else:
             state["portfolio"] = portfolio
-            print(f"Loaded {len(portfolio.holdings)} holdings")
+            logger.info(f"Loaded {len(portfolio.holdings)} holdings")
     except Exception as e:
         state["error"] = f"Failed to load portfolio: {e}"
         state["portfolio"] = None
+    log_node_end(logger, "load")
+    log_transition(logger, "load", "update_prices")
     return state
 
 
 async def update_prices_node(state: AgentState) -> AgentState:
     """Update current prices for all holdings."""
+    log_node_start(logger, "update_prices")
     if state.get("error") or not state.get("portfolio"):
         state["price_updated"] = False
+        log_node_end(logger, "update_prices")
+        log_transition(logger, "update_prices", "analyze")
         return state
 
-    print("Updating prices...")
+    logger.info("Updating prices...")
     try:
         portfolio = update_portfolio_prices(state["portfolio"])
         state["portfolio"] = portfolio
         state["price_updated"] = True
         # Save updated portfolio
         save_portfolio(portfolio)
-        print("Prices updated and saved")
+        logger.info("Prices updated and saved")
     except Exception as e:
-        print(f"Warning: Failed to update some prices: {e}")
+        logger.warning(f"Failed to update some prices: {e}")
         state["price_updated"] = False
+    log_node_end(logger, "update_prices")
+    log_transition(logger, "update_prices", "analyze")
     return state
 
 
 async def analyze_portfolio_node(state: AgentState) -> AgentState:
     """Analyze portfolio using LLM."""
+    log_node_start(logger, "analyze")
     if state.get("error") or not state.get("portfolio"):
         state["analysis"] = None
         state["recommendations"] = []
+        log_node_end(logger, "analyze")
+        log_transition(logger, "analyze", "save")
         return state
 
-    print("Analyzing portfolio with LLM...")
+    logger.info("Analyzing portfolio with LLM...")
 
     if not GEMINI_API_KEY:
         # Generate basic report without LLM
         report = generate_portfolio_report(state["portfolio"])
         state["analysis"] = report
         state["recommendations"] = []
-        print("Warning: No API key, skipping LLM analysis")
+        logger.warning("No API key, skipping LLM analysis")
         return state
 
     try:
@@ -180,25 +202,30 @@ async def analyze_portfolio_node(state: AgentState) -> AgentState:
             state["analysis"] = str(result_text)
             state["recommendations"] = []
 
-        print("Analysis completed")
+        logger.info("Analysis completed")
 
     except Exception as e:
-        print(f"Error analyzing portfolio: {e}")
+        logger.error(f"Error analyzing portfolio: {e}")
         # Fallback to basic report
         report = generate_portfolio_report(state["portfolio"])
         state["analysis"] = report
         state["recommendations"] = []
 
+    log_node_end(logger, "analyze")
+    log_transition(logger, "analyze", "save")
     return state
 
 
 def save_analysis_node(state: AgentState) -> AgentState:
     """Save analysis report to file."""
+    log_node_start(logger, "save")
     if not state.get("portfolio"):
         state["report_path"] = None
+        log_node_end(logger, "save")
+        log_transition(logger, "save", "END")
         return state
 
-    print("Saving analysis report...")
+    logger.info("Saving analysis report...")
 
     ANALYSIS_DIR.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -216,8 +243,10 @@ def save_analysis_node(state: AgentState) -> AgentState:
         json.dump(report_data, f, ensure_ascii=False, indent=2)
 
     state["report_path"] = str(filepath)
-    print(f"Report saved to: {filepath}")
+    logger.info(f"Report saved to: {filepath}")
 
+    log_node_end(logger, "save")
+    log_transition(logger, "save", "END")
     return state
 
 
@@ -248,6 +277,8 @@ def create_agent() -> StateGraph:
 
 async def run_agent() -> AgentState:
     """Run the portfolio analyzer agent."""
+    log_agent_start(logger, "portfolio_manager")
+
     agent = create_agent()
 
     initial_state: AgentState = {
@@ -259,27 +290,34 @@ async def run_agent() -> AgentState:
         "error": None,
     }
 
-    result = await agent.ainvoke(initial_state)
+    try:
+        result = await agent.ainvoke(initial_state)
 
-    # Print summary
-    if result.get("error"):
-        print(f"\nError: {result['error']}")
-    else:
-        print("\n" + "=" * 60)
-        print("Portfolio Analysis Complete")
-        print("=" * 60)
-        if result.get("portfolio"):
-            print(generate_portfolio_report(result["portfolio"]))
+        # Print summary
+        if result.get("error"):
+            logger.info(f"\nError: {result['error']}")
+        else:
+            logger.info("\n" + "=" * 60)
+            logger.info("Portfolio Analysis Complete")
+            logger.info("=" * 60)
+            if result.get("portfolio"):
+                logger.info(generate_portfolio_report(result["portfolio"]))
 
-        if result.get("recommendations"):
-            print("\nRecommendations:")
-            for i, rec in enumerate(result["recommendations"], 1):
-                print(f"  {i}. {rec}")
+            if result.get("recommendations"):
+                logger.info("\nRecommendations:")
+                for i, rec in enumerate(result["recommendations"], 1):
+                    logger.info(f"  {i}. {rec}")
 
-        if result.get("report_path"):
-            print(f"\nFull report saved to: {result['report_path']}")
+            if result.get("report_path"):
+                logger.info(f"\nFull report saved to: {result['report_path']}")
 
-    return result
+        error = result.get("error")
+        log_agent_end(logger, "portfolio_manager", result, error)
+        return result
+    except Exception as e:
+        logger.exception("Unhandled exception in portfolio_manager")
+        log_agent_end(logger, "portfolio_manager", None, str(e))
+        raise
 
 
 # =============================================================================
@@ -296,11 +334,11 @@ def generate_markdown_report() -> str | None:
     try:
         portfolio = load_portfolio()
     except Exception as e:
-        print(f"Error loading portfolio: {e}")
+        logger.error(f"Error loading portfolio: {e}")
         return None
 
     if not portfolio.holdings:
-        print("No holdings in portfolio. Add holdings first.")
+        logger.info("No holdings in portfolio. Add holdings first.")
         return None
 
     # Update prices
@@ -308,7 +346,7 @@ def generate_markdown_report() -> str | None:
         portfolio = update_portfolio_prices(portfolio)
         save_portfolio(portfolio)
     except Exception as e:
-        print(f"Warning: Could not update prices: {e}")
+        logger.warning(f"Could not update prices: {e}")
 
     # Convert holdings to dicts
     holdings_dicts = []
@@ -345,7 +383,7 @@ def generate_markdown_report() -> str | None:
 
     # Save report
     report_path = save_report(content, "portfolio")
-    print(f"Report saved to: {report_path}")
+    logger.info(f"Report saved to: {report_path}")
 
     return str(report_path)
 
@@ -364,14 +402,14 @@ def load_buy_candidates() -> list[dict]:
     candidates = []
 
     if not PREDICTION_ANALYSIS_DIR.exists():
-        print("No prediction analysis results found.")
+        logger.info("No prediction analysis results found.")
         return candidates
 
     # Get most recent analysis files
     analysis_files = sorted(PREDICTION_ANALYSIS_DIR.glob("prediction_*.json"), reverse=True)
 
     if not analysis_files:
-        print("No prediction analysis files found.")
+        logger.info("No prediction analysis files found.")
         return candidates
 
     seen_symbols = set()
@@ -403,7 +441,7 @@ def load_buy_candidates() -> list[dict]:
                     "source_prediction": prediction[:100],
                 })
         except Exception as e:
-            print(f"Error loading {filepath}: {e}")
+            logger.error(f"Error loading {filepath}: {e}")
             continue
 
     # Sort by confidence
@@ -431,9 +469,9 @@ def get_buy_candidates_not_in_portfolio() -> list[dict]:
     # Filter out already held
     new_candidates = [c for c in all_candidates if c["symbol"] not in held_symbols]
 
-    print(f"Found {len(new_candidates)} buy candidates not in portfolio")
+    logger.info(f"Found {len(new_candidates)} buy candidates not in portfolio")
     for c in new_candidates[:5]:
-        print(f"  - {c['symbol']}: {c['name']} ({c['market_position']}, conf: {c['confidence']:.2f})")
+        logger.info(f"  - {c['symbol']}: {c['name']} ({c['market_position']}, conf: {c['confidence']:.2f})")
 
     return new_candidates
 
@@ -449,7 +487,7 @@ async def generate_buy_recommendations() -> list[dict]:
     candidates = get_buy_candidates_not_in_portfolio()
 
     if not candidates:
-        print("No buy candidates to analyze.")
+        logger.info("No buy candidates to analyze.")
         return []
 
     recommendations = []
@@ -457,7 +495,7 @@ async def generate_buy_recommendations() -> list[dict]:
     # Analyze top candidates
     for candidate in candidates[:5]:  # Top 5
         symbol = candidate["symbol"]
-        print(f"\nAnalyzing {symbol} for buy recommendation...")
+        logger.info(f"\nAnalyzing {symbol} for buy recommendation...")
 
         try:
             result = await analyze_for_buy(symbol)
@@ -478,17 +516,17 @@ async def generate_buy_recommendations() -> list[dict]:
                         "source": candidate.get("source_prediction", ""),
                     })
         except Exception as e:
-            print(f"  Error analyzing {symbol}: {e}")
+            logger.error(f"Error analyzing {symbol}: {e}")
             continue
 
     # Sort by foresight relevance
     recommendations.sort(key=lambda x: x.get("foresight_relevance", 0), reverse=True)
 
-    print(f"\n=== Buy Recommendations ({len(recommendations)}) ===")
+    logger.info(f"\n=== Buy Recommendations ({len(recommendations)}) ===")
     for r in recommendations:
-        print(f"  {r['recommendation'].upper()}: {r['symbol']} - {r['name']}")
-        print(f"    Foresight Relevance: {r['foresight_relevance']}%")
-        print(f"    Competitive Advantage: {r['competitive_advantage']}")
+        logger.info(f"  {r['recommendation'].upper()}: {r['symbol']} - {r['name']}")
+        logger.info(f"    Foresight Relevance: {r['foresight_relevance']}%")
+        logger.info(f"    Competitive Advantage: {r['competitive_advantage']}")
 
     # Save recommendations
     if recommendations:
@@ -500,6 +538,6 @@ async def generate_buy_recommendations() -> list[dict]:
                 "generated_at": datetime.now().isoformat(),
                 "recommendations": recommendations,
             }, f, ensure_ascii=False, indent=2)
-        print(f"Saved to: {filepath}")
+        logger.info(f"Saved to: {filepath}")
 
     return recommendations
