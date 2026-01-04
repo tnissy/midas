@@ -2,13 +2,15 @@
 
 This orchestrator manages the execution flow of all Midas agents:
 1. News Watchers (parallel) → collect structural news
-2. Foresight Manager → generate/update future predictions
-3. Foresight-to-Company Translator → identify affected companies
-4. Company Watcher → collect company-specific news
-5. Price Event Analyzer → analyze price movements
-6. Portfolio Manager → analyze portfolio and provide recommendations
-7. Prediction Monitor → generate annual predictions (conditional)
-8. Model Calibration Agent → evaluate prediction accuracy (conditional)
+2. Quality Filter → filter and enrich news items
+3. Foresight Manager → generate/update future predictions
+4. Foresight-to-Company Translator → identify affected companies
+5. Company Watcher → collect company-specific news
+6. Price Event Analyzer → analyze price movements
+7. Portfolio Manager → analyze portfolio and provide recommendations
+8. Raindrop Sync → sync filtered news to Raindrop.io (conditional)
+9. Prediction Monitor → generate annual predictions (conditional)
+10. Model Calibration Agent → evaluate prediction accuracy (conditional)
 """
 
 import asyncio
@@ -17,9 +19,11 @@ from typing import TypedDict
 
 from langgraph.graph import END, StateGraph
 
+from midas import config
 from midas.config import DATA_DIR
 from midas.logging_config import (
     get_agent_logger,
+    get_main_logger,
     log_agent_start,
     log_agent_end,
     log_node_start,
@@ -30,8 +34,12 @@ from midas.models import NewsItem, Foresight, Portfolio
 
 # Import agent modules
 from midas.agents import us_gov_watcher, tech_news_watcher, general_news_watcher, other_gov_watcher
+from midas.agents import news_quality_filter
 from midas.agents import foresight_manager, foresight_to_company_translator
 from midas.agents import company_watcher, price_event_analyzer, portfolio_manager
+
+# Import tools
+from midas.tools.raindrop_sync import sync_filtered_news_to_raindrop
 
 logger = get_agent_logger("orchestrator")
 
@@ -96,7 +104,33 @@ async def run_news_watchers(state: MidasState) -> MidasState:
     logger.info(f"Total structural news collected: {len(all_news)} items")
 
     log_node_end(logger, "news_watchers")
-    log_transition(logger, "news_watchers", "foresight_manager")
+    log_transition(logger, "news_watchers", "quality_filter")
+    return state
+
+
+async def run_quality_filter(state: MidasState) -> MidasState:
+    """Run quality filters on collected news."""
+    log_node_start(logger, "quality_filter")
+
+    logger.info("Running quality filters on all categories...")
+
+    try:
+        # Run quality filters for all categories
+        # Skip LLM-based filters to save costs (only run TF-IDF clustering and blacklist)
+        result = news_quality_filter.run_all_categories(
+            skip_ad_detection=True,  # Skip to save LLM costs
+            skip_value_assessment=True,  # Skip to save LLM costs
+            skip_translation=True,  # Skip to save LLM costs
+        )
+
+        total_stats = result.get("total_stats", {})
+        logger.info(f"Quality filter completed: {total_stats.get('filtered_items', 0)} items filtered")
+
+    except Exception as e:
+        logger.error(f"Quality filter failed: {e}")
+
+    log_node_end(logger, "quality_filter")
+    log_transition(logger, "quality_filter", "foresight_manager")
     return state
 
 
@@ -147,8 +181,8 @@ async def run_translator(state: MidasState) -> MidasState:
 
                 # Extract company symbols from the result
                 for company in result.get("companies", []):
-                    if company.ticker_symbol:
-                        companies_set.add(company.ticker_symbol)
+                    if company.symbol:
+                        companies_set.add(company.symbol)
 
             except Exception as e:
                 logger.warning(f"Failed to translate foresight: {e}")
@@ -265,7 +299,36 @@ async def run_portfolio_manager(state: MidasState) -> MidasState:
         state["portfolio_analysis"] = None
 
     log_node_end(logger, "portfolio_manager")
-    log_transition(logger, "portfolio_manager", "END")
+    log_transition(logger, "portfolio_manager", "raindrop_sync")
+    return state
+
+
+async def run_raindrop_sync(state: MidasState) -> MidasState:
+    """Sync filtered news to Raindrop.io."""
+    log_node_start(logger, "raindrop_sync")
+
+    # Check if Raindrop is configured
+    api_token = getattr(config, "RAINDROP_API_TOKEN", None)
+    if not api_token:
+        logger.info("Raindrop sync skipped (RAINDROP_API_TOKEN not configured)")
+        log_node_end(logger, "raindrop_sync")
+        log_transition(logger, "raindrop_sync", "END")
+        return state
+
+    logger.info("Syncing filtered news to Raindrop.io...")
+
+    try:
+        result = sync_filtered_news_to_raindrop(api_token)
+        logger.info(f"Raindrop sync completed: {result['synced_count']} items synced")
+
+        if result.get("errors"):
+            logger.warning(f"Raindrop sync had {result['error_count']} errors")
+
+    except Exception as e:
+        logger.error(f"Raindrop sync failed: {e}")
+
+    log_node_end(logger, "raindrop_sync")
+    log_transition(logger, "raindrop_sync", "END")
     return state
 
 
@@ -280,20 +343,24 @@ def create_orchestrator() -> StateGraph:
 
     # Add nodes
     workflow.add_node("news_watchers", run_news_watchers)
+    workflow.add_node("quality_filter", run_quality_filter)
     workflow.add_node("foresight_manager", run_foresight_manager)
     workflow.add_node("translator", run_translator)
     workflow.add_node("company_watcher", run_company_watcher)
     workflow.add_node("price_analyzer", run_price_analyzer)
     workflow.add_node("portfolio_manager", run_portfolio_manager)
+    workflow.add_node("raindrop_sync", run_raindrop_sync)
 
     # Define flow
     workflow.set_entry_point("news_watchers")
-    workflow.add_edge("news_watchers", "foresight_manager")
+    workflow.add_edge("news_watchers", "quality_filter")
+    workflow.add_edge("quality_filter", "foresight_manager")
     workflow.add_edge("foresight_manager", "translator")
     workflow.add_edge("translator", "company_watcher")
     workflow.add_edge("company_watcher", "price_analyzer")
     workflow.add_edge("price_analyzer", "portfolio_manager")
-    workflow.add_edge("portfolio_manager", END)
+    workflow.add_edge("portfolio_manager", "raindrop_sync")
+    workflow.add_edge("raindrop_sync", END)
 
     return workflow.compile()
 
@@ -309,6 +376,10 @@ async def run_midas() -> MidasState:
     Returns:
         Final state with all results
     """
+    # Ensure main logger is initialized
+    main_logger = get_main_logger()
+    main_logger.info("Starting Midas Orchestrator...")
+
     log_agent_start(logger, "midas_orchestrator")
 
     run_id = datetime.now().strftime("%Y%m%d_%H%M%S")

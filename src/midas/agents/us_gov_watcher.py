@@ -9,16 +9,19 @@ from midas.models import WatcherType
 # =============================================================================
 
 US_GOV_FEEDS: list[dict] = [
+    # Executive Branch
     {
         "name": "White House",
         "url": "https://www.whitehouse.gov/feed/",
         "description": "Official White House announcements and statements",
     },
+    # Legislative Branch
     {
         "name": "Congress - Bills",
         "url": "https://www.congress.gov/rss/bill-status-all.xml",
         "description": "All bill status updates from Congress",
     },
+    # Regulatory & Oversight
     {
         "name": "Federal Register",
         "url": "https://www.federalregister.gov/documents/current.rss",
@@ -29,6 +32,53 @@ US_GOV_FEEDS: list[dict] = [
         "url": "https://www.sec.gov/news/pressreleases.rss",
         "description": "SEC press releases",
     },
+    # Department of Defense
+    {
+        "name": "Department of Defense",
+        "url": "https://www.defense.gov/DesktopModules/ArticleCS/RSS.ashx?ContentType=1&Site=945",
+        "description": "DOD news releases and announcements",
+    },
+    # Department of State
+    {
+        "name": "Department of State",
+        "url": "https://www.state.gov/rss-feed/press-releases/",
+        "description": "State Department press releases and foreign policy announcements",
+    },
+    # Department of Labor
+    {
+        "name": "Department of Labor",
+        "url": "https://www.dol.gov/rss/releases.xml",
+        "description": "Labor Department news releases on employment and labor policy",
+    },
+    # Department of Health and Human Services
+    {
+        "name": "FDA Press Releases",
+        "url": "https://www.fda.gov/about-fda/contact-fda/stay-informed/rss-feeds/press-releases/rss.xml",
+        "description": "FDA press announcements on food, drug, and medical device regulation",
+    },
+    {
+        "name": "CDC MMWR",
+        "url": "https://tools.cdc.gov/podcasts/feed.asp?feedid=183",
+        "description": "CDC Morbidity and Mortality Weekly Report",
+    },
+    {
+        "name": "NIH News Releases",
+        "url": "https://www.nih.gov/news-releases/feed.xml",
+        "description": "NIH news releases on medical research and public health",
+    },
+    # Department of Energy
+    {
+        "name": "Department of Energy",
+        "url": "https://www.energy.gov/listings/energy-news?view=rss",
+        "description": "DOE news on energy policy and nuclear programs",
+    },
+    # Environmental Protection Agency
+    {
+        "name": "EPA News Releases",
+        "url": "https://www.epa.gov/newsreleases/search/rss",
+        "description": "EPA news releases on environmental regulation",
+    },
+    # Trade Policy
     {
         "name": "US Trade Representative",
         "url": "https://ustr.gov/about-us/policy-offices/press-office/press-releases/rss",

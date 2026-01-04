@@ -10,6 +10,7 @@ from midas.agents import (
     foresight_to_company_translator,
     general_news_watcher,
     model_calibration_agent,
+    news_quality_filter,
     other_gov_watcher,
     portfolio_manager,
     prediction_monitor,
@@ -27,6 +28,10 @@ from midas.tools.portfolio_manager import (
     update_portfolio_prices,
 )
 from midas.tools.stock_screener import TimeFrame, format_movements, screen_movers
+from midas.tools.raindrop_sync import sync_filtered_news_to_raindrop
+from midas.orchestrator import run_midas
+from midas.logging_config import setup_main_logger, cleanup_loggers
+from midas import config
 
 # Watcher definitions
 WATCHERS = {
@@ -416,8 +421,168 @@ def run_learn_cases() -> int:
     return 0
 
 
+# =============================================================================
+# Quality Filter Commands
+# =============================================================================
+
+
+def run_quality_filter(
+    category: str | None,
+    skip_ad: bool,
+    skip_value: bool,
+    skip_translation: bool,
+) -> int:
+    """Run news quality filters."""
+    print("News Quality Filter: Starting filtering...")
+    print("-" * 50)
+
+    try:
+        if category:
+            # Run for specific category
+            result = news_quality_filter.run_quality_filters(
+                category,
+                skip_ad_detection=skip_ad,
+                skip_value_assessment=skip_value,
+                skip_translation=skip_translation,
+            )
+
+            if result.get("error"):
+                print(f"Error: {result['error']}")
+                return 1
+
+            print("\n" + "=" * 70)
+            print(f"QUALITY FILTER COMPLETED - {category}")
+            print("=" * 70)
+            print(f"Total items: {result['total_items']}")
+            print(f"Filtered items: {result['filtered_items']}")
+            print(f"  - Advertisements: {result['ad_detected']}")
+            print(f"  - Blacklisted authors: {result['blacklisted']}")
+            print(f"  - Low value: {result['low_value']}")
+            print(f"Clusters: {result['clusters']}")
+            print(f"Translated titles: {result['translated']}")
+
+            if result.get("output_file"):
+                print(f"\nOutput: {result['output_file']}")
+
+        else:
+            # Run for all categories
+            result = news_quality_filter.run_all_categories(
+                skip_ad_detection=skip_ad,
+                skip_value_assessment=skip_value,
+                skip_translation=skip_translation,
+            )
+
+            total = result['total_stats']
+            print("\n" + "=" * 70)
+            print("QUALITY FILTER COMPLETED - ALL CATEGORIES")
+            print("=" * 70)
+            print(f"Total items: {total['total_items']}")
+            print(f"Filtered items: {total['filtered_items']}")
+            print(f"  - Advertisements: {total['ad_detected']}")
+            print(f"  - Blacklisted authors: {total['blacklisted']}")
+            print(f"  - Low value: {total['low_value']}")
+            print(f"Clusters: {total['clusters']}")
+            print(f"Translated titles: {total['translated']}")
+
+        return 0
+
+    except Exception as e:
+        print(f"\nError: Quality filter failed: {e}")
+        return 1
+
+
+# =============================================================================
+# Raindrop Sync Commands
+# =============================================================================
+
+
+def run_raindrop_sync() -> int:
+    """Sync filtered news to Raindrop.io."""
+    print("Raindrop Sync: Starting sync...")
+    print("-" * 50)
+
+    # Check if RAINDROP_API_TOKEN is configured
+    api_token = getattr(config, "RAINDROP_API_TOKEN", None)
+    if not api_token:
+        print("Error: RAINDROP_API_TOKEN is not configured.")
+        print("Please set RAINDROP_API_TOKEN in your .env file.")
+        return 1
+
+    try:
+        result = sync_filtered_news_to_raindrop(api_token)
+
+        print("\n" + "=" * 70)
+        print("RAINDROP SYNC COMPLETED")
+        print("=" * 70)
+        print(f"Total news items found: {result['total_found']}")
+        print(f"Successfully synced: {result['synced_count']}")
+        print(f"Skipped (already synced/filtered): {result['skipped_count']}")
+        print(f"Errors: {result['error_count']}")
+
+        if result['errors']:
+            print("\nError details (first 5):")
+            for error in result['errors'][:5]:
+                print(f"  - {error}")
+
+        return 0 if result['error_count'] == 0 else 1
+
+    except Exception as e:
+        print(f"\nError: Raindrop sync failed: {e}")
+        return 1
+
+
+# =============================================================================
+# Run Commands
+# =============================================================================
+
+
+async def run_orchestrator() -> int:
+    """Run the complete Midas orchestrator workflow."""
+    print("Starting Midas Orchestrator - Full Workflow")
+    print("=" * 50)
+    print("This will run all agents in sequence:")
+    print("  1. News Watchers (parallel)")
+    print("  2. Quality Filter")
+    print("  3. Foresight Manager")
+    print("  4. Company Translator")
+    print("  5. Company Watcher")
+    print("  6. Price Event Analyzer")
+    print("  7. Portfolio Manager")
+    print("  8. Raindrop Sync (if configured)")
+    print("=" * 50)
+
+    try:
+        final_state = await run_midas()
+
+        print("\n" + "=" * 70)
+        print("ORCHESTRATOR COMPLETED SUCCESSFULLY")
+        print("=" * 70)
+        print(f"\nRun ID: {final_state['run_id']}")
+        print(f"News Items Collected: {len(final_state['news_items'])}")
+        print(f"Foresights Generated: {len(final_state['foresights'])}")
+        print(f"Companies Identified: {len(final_state['companies'])}")
+
+        if final_state.get("portfolio_analysis"):
+            analysis = final_state["portfolio_analysis"]
+            print(f"\nPortfolio Analysis:")
+            if analysis.get("recommendations"):
+                print(f"  Recommendations: {len(analysis['recommendations'])}")
+            if analysis.get("report_path"):
+                print(f"  Report saved to: {analysis['report_path']}")
+
+        print("\nCheck the data/ directory for detailed reports.")
+        return 0
+
+    except Exception as e:
+        print(f"\nError: Orchestrator failed with error: {e}")
+        return 1
+
+
 def main():
     """Main entry point."""
+    # Setup logging first
+    setup_main_logger()
+
     parser = argparse.ArgumentParser(
         description="Midas - Investment Decision Support Agent",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -616,6 +781,43 @@ def main():
         "cases", help="Show all analyzed cases"
     )
 
+    # quality-filter command
+    quality_filter_parser = subparsers.add_parser(
+        "quality-filter", help="Run news quality filters"
+    )
+    quality_filter_parser.add_argument(
+        "--category",
+        "-c",
+        choices=["us_gov", "tech", "general", "other_gov"],
+        default=None,
+        help="Category to filter (default: all categories)",
+    )
+    quality_filter_parser.add_argument(
+        "--skip-ad",
+        action="store_true",
+        help="Skip advertisement detection (save LLM costs)",
+    )
+    quality_filter_parser.add_argument(
+        "--skip-value",
+        action="store_true",
+        help="Skip value assessment (save LLM costs)",
+    )
+    quality_filter_parser.add_argument(
+        "--skip-translation",
+        action="store_true",
+        help="Skip title translation (save LLM costs)",
+    )
+
+    # raindrop-sync command
+    subparsers.add_parser(
+        "raindrop-sync", help="Sync filtered news to Raindrop.io"
+    )
+
+    # run command
+    subparsers.add_parser(
+        "run", help="Run the complete Midas orchestrator workflow"
+    )
+
     args = parser.parse_args()
 
     print_banner()
@@ -675,10 +877,25 @@ def main():
         else:
             learn_parser.print_help()
             return 0
+    elif args.command == "quality-filter":
+        return run_quality_filter(
+            args.category,
+            args.skip_ad,
+            args.skip_value,
+            args.skip_translation,
+        )
+    elif args.command == "raindrop-sync":
+        return run_raindrop_sync()
+    elif args.command == "run":
+        return asyncio.run(run_orchestrator())
     else:
         parser.print_help()
         return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        exit_code = main()
+    finally:
+        cleanup_loggers()
+    sys.exit(exit_code)

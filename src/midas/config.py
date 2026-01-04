@@ -10,6 +10,7 @@ load_dotenv()
 
 # API Keys
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+RAINDROP_API_TOKEN = os.getenv("RAINDROP_API_TOKEN")
 
 # Paths
 PROJECT_ROOT = Path(__file__).parent.parent.parent

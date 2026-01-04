@@ -45,6 +45,50 @@ class NewsCollection(BaseModel):
     source_count: dict[str, int] = Field(default_factory=dict)
 
 
+# =============================================================================
+# News Quality Filter Models
+# =============================================================================
+
+
+class FilteredNewsItem(NewsItem):
+    """A news item with quality filter results."""
+
+    is_advertisement: bool = Field(
+        default=False, description="Whether this is an advertisement/native ad"
+    )
+    value_score: int = Field(
+        default=5, description="Value score 0-10 (higher = more valuable)"
+    )
+    author: str | None = Field(
+        default=None, description="Extracted author name"
+    )
+    is_blacklisted: bool = Field(
+        default=False, description="Whether the author is blacklisted"
+    )
+    cluster_id: str | None = Field(
+        default=None, description="Cluster ID if this is part of a duplicate cluster"
+    )
+    japanese_title: str | None = Field(
+        default=None, description="Japanese translation of the title"
+    )
+
+
+class NewsCluster(BaseModel):
+    """A cluster of duplicate news articles about the same event."""
+
+    cluster_id: str = Field(description="Unique cluster identifier")
+    representative_news_id: str = Field(
+        description="ID of the representative news item (highest quality source)"
+    )
+    duplicate_news_ids: list[str] = Field(
+        default_factory=list, description="IDs of duplicate news items"
+    )
+    similarity_scores: dict[str, float] = Field(
+        default_factory=dict, description="Similarity scores for each duplicate (news_id -> score)"
+    )
+    created_at: datetime = Field(default_factory=datetime.now)
+
+
 class StockMovement(BaseModel):
     """Stock price movement over a period."""
 
