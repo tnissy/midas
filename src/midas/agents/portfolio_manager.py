@@ -23,6 +23,13 @@ from midas.tools.portfolio_manager import (
     save_portfolio,
     update_portfolio_prices,
 )
+from midas.tools.report_generator import (
+    save_report,
+    generate_portfolio_report as generate_portfolio_md_report,
+)
+
+# Path for foresight analysis results
+PREDICTION_ANALYSIS_DIR = DATA_DIR / "prediction_analysis"
 
 # =============================================================================
 # Paths
@@ -273,3 +280,226 @@ async def run_agent() -> AgentState:
             print(f"\nFull report saved to: {result['report_path']}")
 
     return result
+
+
+# =============================================================================
+# Report Generation
+# =============================================================================
+
+
+def generate_markdown_report() -> str | None:
+    """Generate a Markdown report from current portfolio.
+
+    Returns:
+        Path to the generated report, or None if no portfolio
+    """
+    try:
+        portfolio = load_portfolio()
+    except Exception as e:
+        print(f"Error loading portfolio: {e}")
+        return None
+
+    if not portfolio.holdings:
+        print("No holdings in portfolio. Add holdings first.")
+        return None
+
+    # Update prices
+    try:
+        portfolio = update_portfolio_prices(portfolio)
+        save_portfolio(portfolio)
+    except Exception as e:
+        print(f"Warning: Could not update prices: {e}")
+
+    # Convert holdings to dicts
+    holdings_dicts = []
+    for h in portfolio.holdings:
+        holdings_dicts.append({
+            "symbol": h.symbol,
+            "name": h.name,
+            "shares": h.shares,
+            "avg_cost": h.avg_cost,
+            "current_price": h.current_price,
+        })
+
+    # Try to load latest analysis
+    analysis = None
+    recommendations = []
+    try:
+        analysis_files = sorted(ANALYSIS_DIR.glob("analysis_*.json"), reverse=True)
+        if analysis_files:
+            with open(analysis_files[0], encoding="utf-8") as f:
+                data = json.load(f)
+                analysis_json = data.get("llm_analysis", "")
+                if analysis_json:
+                    analysis = json.loads(analysis_json)
+                recommendations = data.get("recommendations", [])
+    except Exception:
+        pass
+
+    # Generate report content
+    content = generate_portfolio_md_report(
+        holdings=holdings_dicts,
+        analysis=analysis,
+        recommendations=recommendations,
+    )
+
+    # Save report
+    report_path = save_report(content, "portfolio")
+    print(f"Report saved to: {report_path}")
+
+    return str(report_path)
+
+
+# =============================================================================
+# Buy Candidates from Foresight Analysis
+# =============================================================================
+
+
+def load_buy_candidates() -> list[dict]:
+    """Load buy candidates from foresight_to_company_translator results.
+
+    Returns:
+        List of company dictionaries with buy candidate information
+    """
+    candidates = []
+
+    if not PREDICTION_ANALYSIS_DIR.exists():
+        print("No prediction analysis results found.")
+        return candidates
+
+    # Get most recent analysis files
+    analysis_files = sorted(PREDICTION_ANALYSIS_DIR.glob("prediction_*.json"), reverse=True)
+
+    if not analysis_files:
+        print("No prediction analysis files found.")
+        return candidates
+
+    seen_symbols = set()
+
+    # Load candidates from recent analyses
+    for filepath in analysis_files[:5]:  # Last 5 analyses
+        try:
+            with open(filepath, encoding="utf-8") as f:
+                data = json.load(f)
+
+            prediction = data.get("prediction", "")
+
+            for company in data.get("critical_companies", []):
+                symbol = company.get("symbol")
+                if not symbol or symbol in seen_symbols:
+                    continue
+
+                seen_symbols.add(symbol)
+                candidates.append({
+                    "symbol": symbol,
+                    "name": company.get("name", ""),
+                    "exchange": company.get("exchange"),
+                    "country": company.get("country", ""),
+                    "role": company.get("role", ""),
+                    "competitive_advantage": company.get("competitive_advantage", ""),
+                    "market_position": company.get("market_position", ""),
+                    "confidence": company.get("confidence", 0.5),
+                    "layer_name": company.get("layer_name", ""),
+                    "source_prediction": prediction[:100],
+                })
+        except Exception as e:
+            print(f"Error loading {filepath}: {e}")
+            continue
+
+    # Sort by confidence
+    candidates.sort(key=lambda x: x.get("confidence", 0), reverse=True)
+
+    return candidates
+
+
+def get_buy_candidates_not_in_portfolio() -> list[dict]:
+    """Get buy candidates that are not already in the portfolio.
+
+    Returns:
+        List of company dictionaries for potential purchases
+    """
+    # Load portfolio
+    try:
+        portfolio = load_portfolio()
+        held_symbols = {h.symbol for h in portfolio.holdings}
+    except Exception:
+        held_symbols = set()
+
+    # Load all candidates
+    all_candidates = load_buy_candidates()
+
+    # Filter out already held
+    new_candidates = [c for c in all_candidates if c["symbol"] not in held_symbols]
+
+    print(f"Found {len(new_candidates)} buy candidates not in portfolio")
+    for c in new_candidates[:5]:
+        print(f"  - {c['symbol']}: {c['name']} ({c['market_position']}, conf: {c['confidence']:.2f})")
+
+    return new_candidates
+
+
+async def generate_buy_recommendations() -> list[dict]:
+    """Generate buy recommendations by analyzing candidates with company_watcher.
+
+    Returns:
+        List of recommendation dictionaries
+    """
+    from midas.agents.company_watcher import analyze_for_buy
+
+    candidates = get_buy_candidates_not_in_portfolio()
+
+    if not candidates:
+        print("No buy candidates to analyze.")
+        return []
+
+    recommendations = []
+
+    # Analyze top candidates
+    for candidate in candidates[:5]:  # Top 5
+        symbol = candidate["symbol"]
+        print(f"\nAnalyzing {symbol} for buy recommendation...")
+
+        try:
+            result = await analyze_for_buy(symbol)
+
+            if result.get("analysis"):
+                analysis = result["analysis"]
+                rec = analysis.get("buy_recommendation", "hold")
+
+                if rec in ("strong_buy", "buy"):
+                    recommendations.append({
+                        "symbol": symbol,
+                        "name": candidate["name"],
+                        "recommendation": rec,
+                        "foresight_relevance": analysis.get("foresight_relevance_pct", 0),
+                        "competitive_advantage": analysis.get("competitive_advantage", "unknown"),
+                        "valuation": analysis.get("valuation", "unknown"),
+                        "summary": analysis.get("summary", ""),
+                        "source": candidate.get("source_prediction", ""),
+                    })
+        except Exception as e:
+            print(f"  Error analyzing {symbol}: {e}")
+            continue
+
+    # Sort by foresight relevance
+    recommendations.sort(key=lambda x: x.get("foresight_relevance", 0), reverse=True)
+
+    print(f"\n=== Buy Recommendations ({len(recommendations)}) ===")
+    for r in recommendations:
+        print(f"  {r['recommendation'].upper()}: {r['symbol']} - {r['name']}")
+        print(f"    Foresight Relevance: {r['foresight_relevance']}%")
+        print(f"    Competitive Advantage: {r['competitive_advantage']}")
+
+    # Save recommendations
+    if recommendations:
+        ANALYSIS_DIR.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filepath = ANALYSIS_DIR / f"buy_recommendations_{timestamp}.json"
+        with open(filepath, "w", encoding="utf-8") as f:
+            json.dump({
+                "generated_at": datetime.now().isoformat(),
+                "recommendations": recommendations,
+            }, f, ensure_ascii=False, indent=2)
+        print(f"Saved to: {filepath}")
+
+    return recommendations

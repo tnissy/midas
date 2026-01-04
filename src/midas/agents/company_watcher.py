@@ -10,9 +10,10 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import END, StateGraph
 
-from midas.config import DATA_DIR, GEMINI_API_KEY, LLM_MODEL
-from midas.models import CompanyNews, NegativeInfo
+from midas.config import DATA_DIR, GEMINI_API_KEY, LLM_MODEL, extract_llm_text
+from midas.models import CompanyNews, NegativeInfo, Foresight
 from midas.tools.company_news_fetcher import fetch_company_news
+from midas.agents.foresight_manager import load_foresights
 
 # =============================================================================
 # Logging Setup
@@ -730,3 +731,299 @@ def format_results(state: WatcherState) -> str:
         lines.append(f"   Log: {state['log_path']}")
 
     return "\n".join(lines)
+
+
+# =============================================================================
+# Buy/Hold Analysis
+# =============================================================================
+
+BUY_ANALYSIS_PROMPT = """You are an investment analyst evaluating whether to BUY a stock.
+
+Given the company information and current foresights (future predictions), analyze:
+
+1. **Foresight Relevance** (0-100%): What percentage of this company's business is related to the foresights?
+2. **Competitive Advantage**: Does this company have a sustainable competitive advantage (moat)?
+3. **Management Quality**: Is the management team capable and trustworthy?
+4. **Valuation**: Is the stock price reasonable based on PER and growth potential?
+
+Respond in JSON:
+{
+    "foresight_relevance_pct": 0-100,
+    "foresight_relevance_reason": "Which foresights relate to this company and how",
+    "competitive_advantage": "strong|moderate|weak|none",
+    "competitive_advantage_reason": "Explanation of moat",
+    "management_quality": "excellent|good|average|poor|unknown",
+    "management_reason": "Explanation",
+    "valuation": "undervalued|fair|overvalued|unknown",
+    "valuation_reason": "Based on PER and growth",
+    "buy_recommendation": "strong_buy|buy|hold|avoid",
+    "summary": "Overall assessment in Japanese (2-3 sentences)"
+}
+
+Respond in Japanese for summary field.
+"""
+
+HOLD_ANALYSIS_PROMPT = """You are an investment analyst evaluating whether to HOLD or SELL a stock you already own.
+
+Given the company information and recent news, analyze:
+
+1. **Thesis Intact**: Is the original investment thesis still valid?
+2. **Competitive Position**: Has a competitor gained significant advantage?
+3. **Management Changes**: Any concerning leadership changes?
+4. **Legal/Regulatory Risk**: Any lawsuits, investigations, or regulatory issues?
+5. **Valuation**: Has the stock become significantly overvalued?
+
+Respond in JSON:
+{
+    "thesis_status": "intact|weakening|broken",
+    "thesis_reason": "Explanation",
+    "competitive_threat": "none|minor|moderate|severe",
+    "competitive_threat_reason": "Explanation",
+    "management_concern": true/false,
+    "management_concern_reason": "Explanation if true",
+    "legal_regulatory_risk": "none|low|medium|high|critical",
+    "legal_regulatory_reason": "Explanation",
+    "valuation_concern": true/false,
+    "valuation_reason": "Is it too expensive now?",
+    "hold_recommendation": "strong_hold|hold|reduce|sell",
+    "summary": "Overall assessment in Japanese (2-3 sentences)"
+}
+
+Respond in Japanese for summary field.
+"""
+
+
+async def analyze_for_buy(symbol: str) -> dict:
+    """Analyze a company for potential purchase.
+
+    Args:
+        symbol: Stock ticker symbol
+
+    Returns:
+        Analysis result dictionary
+    """
+    symbol = symbol.upper()
+    print(f"Analyzing {symbol} for BUY decision...")
+
+    result = {
+        "symbol": symbol,
+        "analysis_type": "buy",
+        "analyzed_at": datetime.now().isoformat(),
+        "company_info": {},
+        "foresights_used": [],
+        "analysis": None,
+        "error": None,
+    }
+
+    try:
+        # Get company info from yfinance
+        ticker = yf.Ticker(symbol)
+        info = ticker.info
+
+        company_info = {
+            "name": info.get("shortName") or info.get("longName") or symbol,
+            "sector": info.get("sector", "Unknown"),
+            "industry": info.get("industry", "Unknown"),
+            "business_summary": info.get("longBusinessSummary", "")[:500],
+            "market_cap": info.get("marketCap"),
+            "pe_ratio": info.get("trailingPE"),
+            "forward_pe": info.get("forwardPE"),
+            "peg_ratio": info.get("pegRatio"),
+            "price": info.get("currentPrice") or info.get("regularMarketPrice"),
+            "52w_high": info.get("fiftyTwoWeekHigh"),
+            "52w_low": info.get("fiftyTwoWeekLow"),
+        }
+        result["company_info"] = company_info
+        print(f"  Company: {company_info['name']}")
+        print(f"  Sector: {company_info['sector']}")
+        print(f"  P/E: {company_info['pe_ratio']}")
+
+        # Load foresights
+        foresights = load_foresights()
+        foresight_text = ""
+        if foresights:
+            result["foresights_used"] = [f.title for f in foresights]
+            foresight_text = "\n".join([
+                f"- {f.title}: {f.description[:200]}..."
+                for f in foresights[:5]
+            ])
+            print(f"  Using {len(foresights)} foresights for analysis")
+        else:
+            print("  Warning: No foresights available")
+
+        # Run LLM analysis
+        if not GEMINI_API_KEY:
+            result["error"] = "No API key available"
+            return result
+
+        llm = ChatGoogleGenerativeAI(model=LLM_MODEL, google_api_key=GEMINI_API_KEY)
+
+        prompt = f"""Company: {company_info['name']} ({symbol})
+Sector: {company_info['sector']}
+Industry: {company_info['industry']}
+Business: {company_info['business_summary']}
+
+Financial Metrics:
+- Market Cap: ${company_info['market_cap']:,} if company_info['market_cap'] else 'N/A'
+- P/E Ratio: {company_info['pe_ratio']}
+- Forward P/E: {company_info['forward_pe']}
+- PEG Ratio: {company_info['peg_ratio']}
+- Current Price: ${company_info['price']}
+- 52-Week Range: ${company_info['52w_low']} - ${company_info['52w_high']}
+
+Current Foresights (Future Predictions):
+{foresight_text if foresight_text else 'No foresights available'}
+
+Analyze this company for a potential BUY decision."""
+
+        messages = [
+            SystemMessage(content=BUY_ANALYSIS_PROMPT),
+            HumanMessage(content=prompt),
+        ]
+
+        response = await llm.ainvoke(messages)
+        response_text = extract_llm_text(response.content)
+
+        # Parse JSON response
+        if isinstance(response_text, str):
+            start = response_text.find("{")
+            end = response_text.rfind("}") + 1
+            if start != -1 and end > start:
+                result["analysis"] = json.loads(response_text[start:end])
+
+        print(f"  Recommendation: {result['analysis'].get('buy_recommendation', 'N/A')}")
+
+    except Exception as e:
+        print(f"  Error: {e}")
+        result["error"] = str(e)
+
+    # Save result
+    WATCHER_DATA_DIR.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filepath = WATCHER_DATA_DIR / f"buy_analysis_{symbol}_{timestamp}.json"
+    with open(filepath, "w", encoding="utf-8") as f:
+        json.dump(result, f, ensure_ascii=False, indent=2)
+    print(f"  Saved to: {filepath}")
+
+    return result
+
+
+async def analyze_for_hold(symbol: str) -> dict:
+    """Analyze a held company for hold/sell decision.
+
+    This extends the negative info analysis with additional hold-specific checks.
+
+    Args:
+        symbol: Stock ticker symbol
+
+    Returns:
+        Analysis result dictionary
+    """
+    symbol = symbol.upper()
+    print(f"Analyzing {symbol} for HOLD decision...")
+
+    result = {
+        "symbol": symbol,
+        "analysis_type": "hold",
+        "analyzed_at": datetime.now().isoformat(),
+        "company_info": {},
+        "negative_info_summary": None,
+        "analysis": None,
+        "error": None,
+    }
+
+    try:
+        # First run negative info analysis
+        negative_state = await run_agent(symbol)
+        result["negative_info_summary"] = {
+            "total_news": len(negative_state.get("all_news", [])),
+            "negative_count": len(negative_state.get("negative_info", [])),
+            "risk_summary": negative_state.get("risk_summary"),
+            "critical_issues": [
+                n.title for n in negative_state.get("negative_info", [])
+                if n.severity in ("critical", "high")
+            ][:5],
+        }
+
+        # Get company info
+        ticker = yf.Ticker(symbol)
+        info = ticker.info
+
+        company_info = {
+            "name": info.get("shortName") or info.get("longName") or symbol,
+            "sector": info.get("sector", "Unknown"),
+            "pe_ratio": info.get("trailingPE"),
+            "forward_pe": info.get("forwardPE"),
+            "price": info.get("currentPrice") or info.get("regularMarketPrice"),
+            "52w_high": info.get("fiftyTwoWeekHigh"),
+            "52w_low": info.get("fiftyTwoWeekLow"),
+            "price_to_52w_high_pct": None,
+        }
+
+        # Calculate how close to 52w high
+        if company_info["price"] and company_info["52w_high"]:
+            company_info["price_to_52w_high_pct"] = (
+                company_info["price"] / company_info["52w_high"] * 100
+            )
+
+        result["company_info"] = company_info
+
+        # Run LLM analysis
+        if not GEMINI_API_KEY:
+            result["error"] = "No API key available"
+            return result
+
+        llm = ChatGoogleGenerativeAI(model=LLM_MODEL, google_api_key=GEMINI_API_KEY)
+
+        # Prepare negative info text
+        negative_text = "None found" if not result["negative_info_summary"]["critical_issues"] else "\n".join([
+            f"- {issue}" for issue in result["negative_info_summary"]["critical_issues"]
+        ])
+
+        prompt = f"""Company: {company_info['name']} ({symbol})
+Sector: {company_info['sector']}
+
+Financial Metrics:
+- P/E Ratio: {company_info['pe_ratio']}
+- Forward P/E: {company_info['forward_pe']}
+- Current Price: ${company_info['price']}
+- 52-Week High: ${company_info['52w_high']}
+- Price vs 52W High: {company_info['price_to_52w_high_pct']:.1f}% if company_info['price_to_52w_high_pct'] else 'N/A'
+
+Recent Negative Information:
+{negative_text}
+
+Risk Summary: {result['negative_info_summary']['risk_summary'] or 'No significant risks found'}
+
+Analyze whether to HOLD or SELL this position."""
+
+        messages = [
+            SystemMessage(content=HOLD_ANALYSIS_PROMPT),
+            HumanMessage(content=prompt),
+        ]
+
+        response = await llm.ainvoke(messages)
+        response_text = extract_llm_text(response.content)
+
+        # Parse JSON response
+        if isinstance(response_text, str):
+            start = response_text.find("{")
+            end = response_text.rfind("}") + 1
+            if start != -1 and end > start:
+                result["analysis"] = json.loads(response_text[start:end])
+
+        print(f"  Recommendation: {result['analysis'].get('hold_recommendation', 'N/A')}")
+
+    except Exception as e:
+        print(f"  Error: {e}")
+        result["error"] = str(e)
+
+    # Save result
+    WATCHER_DATA_DIR.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filepath = WATCHER_DATA_DIR / f"hold_analysis_{symbol}_{timestamp}.json"
+    with open(filepath, "w", encoding="utf-8") as f:
+        json.dump(result, f, ensure_ascii=False, indent=2)
+    print(f"  Saved to: {filepath}")
+
+    return result

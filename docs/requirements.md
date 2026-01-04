@@ -165,168 +165,151 @@
 
 ---
 
-## 6. エージェント関連図
+## 6. エージェント
 
-### 6.1 全体アーキテクチャ
+### 6.1 エージェント一覧
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                           Midas Agent Architecture                          │
-└─────────────────────────────────────────────────────────────────────────────┘
+#### foresight_manager（未来予測管理エージェント）
 
-                              【外部データソース】
-    ┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌──────────────┐
-    │  White House │ │  Tech Blogs  │ │   EU/UK Gov  │ │ Google News  │
-    │  Congress    │ │  Google News │ │   各国規制   │ │ 経済メディア │
-    │  SEC/USTR    │ │   RSS        │ │   RSS        │ │   RSS        │
-    └──────┬───────┘ └──────┬───────┘ └──────┬───────┘ └──────┬───────┘
-           │                │                │                │
-           ▼                ▼                ▼                ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                        【データ収集レイヤー】                                │
-│  ┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐ ┌─────────────┐│
-│  │ US Gov News     │ │ Tech News       │ │ Other Gov News  │ │ General     ││
-│  │ Watcher         │ │ Watcher         │ │ Watcher         │ │ News Watcher││
-│  │ ─────────────── │ │ ─────────────── │ │ ─────────────── │ │ ───────────-││
-│  │ • RSS収集       │ │ • RSS収集       │ │ • RSS収集       │ │ • RSS収集   ││
-│  │ • LLMフィルタ   │ │ • LLMフィルタ   │ │ • LLMフィルタ   │ │ • LLMフィルタ││
-│  │ • 重複排除      │ │ • 重複排除      │ │ • 重複排除      │ │ • 重複排除  ││
-│  └────────┬────────┘ └────────┬────────┘ └────────┬────────┘ └──────┬──────┘│
-└───────────┼──────────────────┼──────────────────┼────────────────────┼──────┘
-            │                  │                  │                    │
-            └──────────────────┴─────────┬────────┴────────────────────┘
-                                         │
-                                         ▼
-                            ┌────────────────────────┐
-                            │   data/news/*.json     │
-                            │   (構造変化ニュース)   │
-                            └───────────┬────────────┘
-                                        │
-                    ┌───────────────────┴───────────────────┐
-                    │                                       │
-                    ▼                                       ▼
-┌─────────────────────────────────────────┐   ┌─────────────────────────────────┐
-│       【未来洞察レイヤー】               │   │      【年次展望レイヤー】         │
-│  ┌─────────────────────────────────┐   │   │  ┌─────────────────────────┐     │
-│  │      Future Insight Agent       │   │   │  │      Farseer            │     │
-│  │ ─────────────────────────────── │   │   │  │ ─────────────────────── │     │
-│  │ 1. collect: ニュース読込        │   │   │  │ 1. scan: Google News    │     │
-│  │ 2. extract_signals: シグナル抽出│   │   │  │    検索で展望記事収集   │     │
-│  │ 3. synthesize_themes: テーマ合成│   │   │  │ 2. analyze: 社会変化    │     │
-│  │ 4. generate_report: レポート    │   │   │  │    を LLM で分析        │     │
-│  │ 5. save: 保存                   │   │   │  │ 3. report: レポート生成 │     │
-│  └────────────────┬────────────────┘   │   │  └───────────┬─────────────┘     │
-└───────────────────┼─────────────────────┘   └─────────────┼───────────────────┘
-                    │                                       │
-                    │  ┌────────────────────────────────────┘
-                    │  │
-                    ▼  ▼
-          ┌──────────────────────────────────────────────────────────┐
-          │                【企業発見レイヤー】                       │
-          │  ┌────────────────────────────────────────────────────┐ │
-          │  │          Critical Company Finder                    │ │
-          │  │ ─────────────────────────────────────────────────── │ │
-          │  │ Input: 未来予測（例: "EV が主流になる"）            │ │
-          │  │ 1. decompose: バリューチェーン分解                  │ │
-          │  │    → 素材/部品/装置/インフラ/サービス               │ │
-          │  │ 2. find_companies: 各層の企業を特定                 │ │
-          │  │ 3. synthesize: 投資示唆とリスクを整理               │ │
-          │  └────────────────────────────────────────────────────┘ │
-          └──────────────────────────────────────────────────────────┘
-                                        │
-                                        │ 特定された企業
-                                        ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                         【企業分析レイヤー】                                 │
-│                                                                             │
-│   ┌─────────────────────────────┐     ┌─────────────────────────────┐      │
-│   │   Negative Info Watcher     │     │   Price Event Analyzer      │      │
-│   │ ─────────────────────────── │     │ ─────────────────────────── │      │
-│   │ Input: 企業シンボル (AAPL)  │     │ Input: 企業シンボル (AAPL)  │      │
-│   │ 1. fetch: yfinance + 検索  │     │ 1. fetch_price: yfinance    │      │
-│   │ 2. filter: キーワード抽出  │     │ 2. find_events: ±5%日次変動 │      │
-│   │ 3. analyze: LLM でリスク   │     │ 3. search_news: 前後ニュース│      │
-│   │    レベルを評価            │     │ 4. analyze: LLM で原因特定  │      │
-│   │ 4. summarize: リスク要約   │     │    (決算/規制/訴訟等)       │      │
-│   └──────────────┬──────────────┘     └──────────────┬──────────────┘      │
-│                  │                                    │                     │
-└──────────────────┼────────────────────────────────────┼─────────────────────┘
-                   │                                    │
-                   └────────────────┬───────────────────┘
-                                    │
-                                    ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                      【ポートフォリオレイヤー】                              │
-│                                                                             │
-│   ┌─────────────────────────────────────────────────────────────────┐      │
-│   │                    Portfolio Analyzer                            │      │
-│   │ ─────────────────────────────────────────────────────────────── │      │
-│   │ Input: data/portfolio/portfolio.json (保有銘柄)                  │      │
-│   │ 1. load: ポートフォリオ読込                                      │      │
-│   │ 2. update_prices: yfinance で時価更新                            │      │
-│   │ 3. analyze: LLM でポートフォリオ分析                             │      │
-│   │    → 集中リスク/セクター分散/個別銘柄評価                        │      │
-│   │ 4. save: 分析結果保存                                            │      │
-│   └─────────────────────────────────────────────────────────────────┘      │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
+未来予測の管理を担うオーケストレーターエージェント。4種の Watcher エージェント（tech_news_watcher, us_gov_watcher, other_gov_watcher, general_news_watcher）と prediction_monitor からの情報を統合し、foresight_to_company_translator に渡す。
+各エージェントに対して，前回どういう情報が足りなかったから、今回はこういう情報を追加的に集めてほしいなどの指示を出す。
+情報収集後，foresightについてまとめたスライドをGoogleスライドに出力する。
 
-### 6.2 データフロー概要
+- 入力元: ここがSTART地点. 下記の出力先からのフィードバックを受領
+- 出力先: 4種の Watcher エージェントと prediction_monitor，foresight_to_company_translator，Googleスライド
 
-```
-┌────────────────────────────────────────────────────────────────────┐
-│                     主要データフロー                               │
-├────────────────────────────────────────────────────────────────────┤
-│                                                                    │
-│  [買い調査フロー]                                                  │
-│  RSS Sources → News Watchers → Future Insight Agent                │
-│                                     ↓                              │
-│                              投資テーマ/シグナル                    │
-│                                     ↓                              │
-│                          Critical Company Finder                   │
-│                                     ↓                              │
-│                              重要企業リスト                         │
-│                                     ↓                              │
-│                          Negative Info Watcher (企業精査)          │
-│                                                                    │
-│  ───────────────────────────────────────────────────────────────  │
-│                                                                    │
-│  [売り調査フロー]                                                  │
-│  Portfolio (保有銘柄) → Portfolio Analyzer                         │
-│           ↓                    ↓                                   │
-│     Price Event Analyzer    集中リスク/Thesis破綻チェック          │
-│           ↓                                                        │
-│     株価急変の原因分析                                              │
-│                                                                    │
-│  ───────────────────────────────────────────────────────────────  │
-│                                                                    │
-│  [未来展望フロー]                                                  │
-│  prediction_monitor → 年次展望記事スキャン → 社会変化の検出        │
-│                 ↓                                                  │
-│       foresight_to_company_translator (展望に基づく企業探索)       │
-│                                                                    │
-└────────────────────────────────────────────────────────────────────┘
-```
+---
 
-### 6.3 エージェント一覧
+#### tech_news_watcher（テクノロジーニュース監視エージェント）
 
-| エージェント | 役割       | 使用ツール | 主な入力元 | 主な出力先 | 備考 |
-|------------|-----------|-----------|-----------|-----------|------|
-| **forsight_manager** | 未来予測の管理 | | *_watcher（4種）, prediction_monitor | foresight_to_company_translator |  |
-| **tech_news_watcher** | テクノロジー情報収集 | RSS Fetcher, LLM | forsight_manager, | forsight_manager | Ars Technica, TechCrunch, Wired, MIT Tech Review 等 |
-| **us_gov_watcher** | 米国政府情報収集 | RSS Fetcher,  LLM | forsight_manager, | forsight_manager,  | White House, Congress, Federal Register, SEC, USTR |
-| **other_gov_watcher** | 他国政府情報収集 | RSS Fetcher,  LLM | forsight_manager, | forsight_manager,  | EU, UK, 中国, 日本, IMF, World Bank 等 |
-| **general_news_watcher** | 一般ニュース収集 | RSS Fetcher,  LLM | forsight_manager, | forsight_manager,  | Yahoo Finance, Bloomberg, Reuters, CNBC 等 |
-| **prediction_monitor** | 社会変化分析 | Google News RSS, LLM | forsight_manager | forsight_manager | McKinsey, BCG, WEF 等の年次展望記事をスキャン |
-| **foresight_to_company_translator** | 重要企業特定 |  LLM（3段階分析） | prediction_monitor | company_watcher, portfolio_manager | バリューチェーン分解→企業特定→ボトルネック分析 |
-| **company_watcher** | 企業調査 | yfinance, Company News Fetcher,  LLM | foresight_to_company_translator, portfolio_manager, CLI | portfolio_manager | 訴訟・不正・規制・ダウングレード等の負情報を監視 |
-| **price_event_analyzer** | 株価変動原因分析 | yfinance, Company News Fetcher, Gemini LLM | portfolio_manager, CLI | model_calibration_agent | ±5%以上の値動きを検出し原因を分析 |
-| **portfolio_manager** | ポートフォリオ分析 | Portfolio Manager Tool, yfinance, Gemini LLM | portfolio.json, company_watcher | company_watcher, price_event_analyzer | 保有銘柄の健全性・集中度・分散を評価 |
-| **model_calibration_agent** | 株価急変からの学習 | Stock Screener, yfinance, Company News Fetcher, Gemini LLM | price_event_analyzer, Stock Screener | 全エージェント（知見フィードバック） | 3x上昇/1/3下落の極端な値動きから構造変化パターンを学習 |
+テクノロジー関連の情報を収集するエージェント。
+model_calibration_agentからの指示を受けて情報収集先を見直す機能を備える。
+
+- **使用ツール**: RSS Fetcher, LLM
+- **データソース**: Ars Technica, TechCrunch, Wired, MIT Tech Review 等
+- **入出力**: foresight_manager から起動され、収集結果を foresight_manager に返す
+
+---
+
+#### us_gov_watcher（米国政府監視エージェント）
+
+米国政府の公式情報を収集するエージェント。法案・規制・政策・国家戦略など、構造変化に関わる政府動向を監視する。
+model_calibration_agentからの指示を受けて情報収集先を見直す機能を備える。
+
+- **使用ツール**: RSS Fetcher, LLM
+- **データソース**: White House, Congress, Federal Register, SEC, USTR
+- **入出力**: foresight_manager から起動され、収集結果を foresight_manager に返す
+
+---
+
+#### other_gov_watcher（他国政府監視エージェント）
+
+米国以外の政府・国際機関の情報を収集するエージェント。日本を特別扱いせず、グローバルな視点で規制・政策変更を監視する。
+model_calibration_agentからの指示を受けて情報収集先を見直す機能を備える。
+
+- **使用ツール**: RSS Fetcher, LLM
+- **データソース**: EU, UK, 中国, 日本, IMF, World Bank 等
+- **入出力**: foresight_manager から起動され、収集結果を foresight_manager に返す
+
+---
+
+#### general_news_watcher（一般ニュース監視エージェント）
+
+経済・ビジネス関連の一般ニュースを収集するエージェント。上記3つの Watcher でカバーしきれない構造変化情報を拾う。
+model_calibration_agentからの指示を受けて情報収集先を見直す機能を備える。
+
+- **使用ツール**: RSS Fetcher, LLM
+- **データソース**: Yahoo Finance, Bloomberg, Reuters, CNBC 等
+- **入出力**: foresight_manager から起動され、収集結果を foresight_manager に返す
+
+---
+
+#### prediction_monitor（予測監視エージェント）
+
+社会変化を分析するエージェント。McKinsey、BCG、WEF などの年次展望記事をスキャンし、中長期の社会変化トレンドを検出する。
+model_calibration_agentからの指示を受けて情報収集先を見直す機能を備える。
+
+- **使用ツール**: Google News RSS, LLM
+- **入出力**: foresight_manager から起動され、分析結果を foresight_manager に返す
+
+---
+
+#### foresight_to_company_translator（展望-企業変換エージェント）
+
+未来予測から重要企業を特定するエージェント。3段階の LLM 分析（バリューチェーン分解 → 企業特定 → ボトルネック分析）により、投資候補となる企業を抽出する。
+
+- **使用ツール**: LLM（3段階分析）
+- **入力元**: prediction_monitor，company_watcher
+- **出力先**: company_watcher, portfolio_manager
+
+---
+
+#### company_watcher（企業監視エージェント）
+
+今持っていないその銘柄を買うべきかどうか、または今持っている銘柄をホールドし続けてよいかを判断し，portfolio_managerに通知する
+
+今持っていない銘柄の場合
+・事業内容のうち，未来予測と関連する事業の割合
+・競争優位性
+・経営者のカリスマ性，能力
+・PERなど，今の株価が高すぎないか
+
+今持っている銘柄の場合
+・ライバル企業における著しい競争優位の発生
+・経営者の退任
+・致命的な訴訟
+・規制当局による認可拒否
+・PERなど，今の株価が安すぎないか
+
+- **使用ツール**: yfinance, Company News Fetcher, LLM
+- **入力**: foresight_to_company_translator, portfolio_manager, CLI
+- **出力**: portfolio_manager
+
+---
+
+#### price_event_analyzer（株価イベント分析エージェント）
+
+過去1ヶ月で株価が3倍または3分の1になった銘柄を洗い出す
+その銘柄の過去2ヶ月のニュースを検索し，結果をmodel_calibration_agentに渡す
+
+- **使用ツール**: yfinance, Company News Fetcher, Gemini LLM
+- **入力**: portfolio_manager, CLI
+- **出力**: model_calibration_agent
+
+---
+
+#### portfolio_manager（ポートフォリオ管理エージェント）
+
+保有銘柄のポートフォリオを管理し，あらたな銘柄の買付提案，保有銘柄の保有継続提案を行う
+foresight破綻の兆候を検出する
+現状と提案内容をGoogleスライドに出力する
+
+- **使用ツール**: yfinance, Gemini LLM
+- **入力**: portfolio.json, price_event_analyzer, foresight_to_company_translator
+- **出力**: Googleスライド 
+
+---
+
+#### model_calibration_agent（モデル校正エージェント）
+
+株価急変事例から学習するエージェント。
+price_event_analyzerから通知を受けた銘柄と過去のニュースを分析し，次のアクションを行う
+
+1ヶ月で3倍上昇の場合
+・未来予測に関係する動きなのか，個別企業の動きなのかを判別
+・未来予測に関係する動きだった場合，foresight_managerからデータを取得し，その未来予測がカバーできているか確認する
+・カバーできていない場合，ニュースウォッチャーにそれをカバーするよう指示する
+
+1ヶ月で1/3下落の場合
+・company_watcherからデータを取得し，その株価の下落の要因の収集ができているか確認する
+・カバーできていない場合，company_watcherにそれをカバーするよう指示する
+
+- **使用ツール**: Stock Screener, yfinance, Company News Fetcher, Gemini LLM
+- **入力**: price_event_analyzer, Stock Screener
+- **出力**: 全エージェント（知見フィードバック）
 
 
-### 6.4 CLI コマンドとエージェントの対応
+### 6.2 CLI コマンドとエージェントの対応
 
 ```bash
 # データ収集

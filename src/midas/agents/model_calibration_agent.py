@@ -23,6 +23,9 @@ from midas.models import (
     LearnedInsight,
     MovementDirection,
     StructuralChangeType,
+    SuggestedFeed,
+    SuggestedKeyword,
+    WatcherType,
 )
 from midas.tools.company_news_fetcher import fetch_news_around_date
 from midas.tools.stock_screener import TimeFrame, screen_movers
@@ -113,6 +116,16 @@ For each insight:
 - List detection patterns (what to watch for in news/data)
 - Specify which sectors this applies to
 - Rate importance (low/medium/high/critical)
+- Suggest RSS feeds that should be monitored to catch similar patterns early
+- Suggest keywords to watch for in news
+- Specify which watchers should act on this insight
+
+Available watchers:
+- tech_news_watcher: Technology news (Ars Technica, TechCrunch, MIT Tech Review, etc.)
+- us_gov_watcher: US government news (White House, Congress, SEC, Federal Register)
+- other_gov_watcher: Non-US government news (EU, UK, China, Japan, IMF, World Bank)
+- general_news_watcher: General financial news (Bloomberg, Reuters, Yahoo Finance)
+- prediction_monitor: Annual outlook articles (McKinsey, BCG, WEF)
 
 Respond in JSON format:
 {
@@ -123,7 +136,24 @@ Respond in JSON format:
             "description": "Detailed description",
             "detection_patterns": ["Pattern to watch 1", "Pattern to watch 2"],
             "applicable_sectors": ["Technology", "Healthcare", ...],
-            "importance": "high"
+            "importance": "high",
+            "target_watchers": ["tech_news_watcher", "us_gov_watcher"],
+            "suggested_feeds": [
+                {
+                    "name": "Feed Name",
+                    "url": "https://example.com/rss",
+                    "target_watcher": "tech_news_watcher",
+                    "reason": "Why this feed is relevant",
+                    "priority": "high"
+                }
+            ],
+            "suggested_keywords": [
+                {
+                    "keyword": "AI regulation",
+                    "target_watcher": "us_gov_watcher",
+                    "reason": "Why this keyword matters"
+                }
+            ]
         }
     ],
     "key_findings": ["Finding 1", "Finding 2", ...],
@@ -488,6 +518,42 @@ Create insights that can help detect similar situations in the future."""
                     except ValueError:
                         category = StructuralChangeType.OTHER
 
+                    # Parse suggested feeds
+                    suggested_feeds = []
+                    for feed_data in insight_data.get("suggested_feeds", []):
+                        try:
+                            target_watcher = WatcherType(feed_data.get("target_watcher", "tech_news_watcher"))
+                            suggested_feeds.append(SuggestedFeed(
+                                name=feed_data.get("name", ""),
+                                url=feed_data.get("url", ""),
+                                target_watcher=target_watcher,
+                                reason=feed_data.get("reason", ""),
+                                priority=feed_data.get("priority", "medium"),
+                            ))
+                        except (ValueError, KeyError):
+                            continue
+
+                    # Parse suggested keywords
+                    suggested_keywords = []
+                    for kw_data in insight_data.get("suggested_keywords", []):
+                        try:
+                            target_watcher = WatcherType(kw_data.get("target_watcher", "tech_news_watcher"))
+                            suggested_keywords.append(SuggestedKeyword(
+                                keyword=kw_data.get("keyword", ""),
+                                target_watcher=target_watcher,
+                                reason=kw_data.get("reason", ""),
+                            ))
+                        except (ValueError, KeyError):
+                            continue
+
+                    # Parse target watchers
+                    target_watchers = []
+                    for tw in insight_data.get("target_watchers", []):
+                        try:
+                            target_watchers.append(WatcherType(tw))
+                        except ValueError:
+                            continue
+
                     insight = LearnedInsight(
                         id=insight_id,
                         title=insight_data.get("title", ""),
@@ -497,6 +563,9 @@ Create insights that can help detect similar situations in the future."""
                         applicable_sectors=insight_data.get("applicable_sectors", []),
                         source_cases=[c.id for c in analyzed_cases],
                         importance=insight_data.get("importance", "medium"),
+                        suggested_feeds=suggested_feeds,
+                        suggested_keywords=suggested_keywords,
+                        target_watchers=target_watchers,
                     )
                     insights.append(insight)
                     save_insight(insight)

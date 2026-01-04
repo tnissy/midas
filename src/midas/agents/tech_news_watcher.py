@@ -9,8 +9,9 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import END, StateGraph
 
 from midas.config import extract_llm_text, DATA_DIR, GEMINI_API_KEY, LLM_MODEL
-from midas.models import NewsCategory, NewsItem
+from midas.models import NewsCategory, NewsItem, WatcherType
 from midas.tools.rss_fetcher import fetch_feeds
+from midas.tools.feedback_loader import build_dynamic_feeds, format_feedback_summary
 
 # =============================================================================
 # Feed Definitions (Technology Sources)
@@ -66,6 +67,9 @@ TECH_FEEDS: list[dict] = [
 WATCHER_DATA_DIR = DATA_DIR / "tech"
 CACHE_FILE = WATCHER_DATA_DIR / "fetched_ids.json"
 
+# Watcher type for feedback loading
+WATCHER_TYPE = WatcherType.TECH_NEWS
+
 # =============================================================================
 # Agent State
 # =============================================================================
@@ -120,8 +124,19 @@ For each news item, respond in JSON format:
 async def fetch_news(state: AgentState) -> AgentState:
     """Fetch news from technology RSS sources and save raw data."""
     print("Fetching Technology news...")
+
+    # Build dynamic feed list from base feeds + insights
+    all_feeds = build_dynamic_feeds(TECH_FEEDS, WATCHER_TYPE)
+    dynamic_count = sum(1 for f in all_feeds if f.get("is_dynamic", False))
+
+    if dynamic_count > 0:
+        print(f"  Using {len(TECH_FEEDS)} base feeds + {dynamic_count} dynamic feeds from insights")
+        print(format_feedback_summary(WATCHER_TYPE))
+    else:
+        print(f"  Using {len(TECH_FEEDS)} base feeds (no dynamic feeds yet)")
+
     try:
-        items = await fetch_feeds(TECH_FEEDS, CACHE_FILE)
+        items = await fetch_feeds(all_feeds, CACHE_FILE)
         state["raw_items"] = items
         print(f"Total: {len(items)} new items fetched")
 

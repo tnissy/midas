@@ -23,6 +23,7 @@ from langgraph.graph import END, StateGraph
 from midas.agents import prediction_monitor
 from midas.config import DATA_DIR, GEMINI_API_KEY, LLM_MODEL, extract_llm_text
 from midas.models import Foresight, ForesightSource, NewsItem
+from midas.tools.report_generator import save_report, generate_foresight_report
 
 # =============================================================================
 # Constants
@@ -677,3 +678,59 @@ def format_results(state: ForesightState) -> str:
         lines.append(f"Saved to: {state['saved_path']}")
 
     return "\n".join(lines)
+
+
+# =============================================================================
+# Report Generation
+# =============================================================================
+
+
+def generate_report(executive_summary: str = "") -> Path:
+    """Generate a Markdown report from current foresights.
+
+    Args:
+        executive_summary: Optional executive summary text
+
+    Returns:
+        Path to the generated report
+    """
+    foresights = load_foresights()
+
+    if not foresights:
+        print("No foresights available. Run 'midas foresight scan' first.")
+        return None
+
+    # Convert Foresight objects to dicts for report generator
+    foresight_dicts = []
+    for fs in foresights:
+        foresight_dicts.append({
+            "title": fs.title,
+            "description": fs.description,
+            "sources": [
+                {
+                    "title": src.title,
+                    "url": src.url,
+                    "excerpt": src.excerpt,
+                }
+                for src in fs.sources
+            ],
+        })
+
+    # Get last update info
+    last_full = get_last_full_update()
+    period = ""
+    if last_full:
+        period = f"Last full update: {last_full.strftime('%Y-%m-%d')}"
+
+    # Generate report content
+    content = generate_foresight_report(
+        foresights=foresight_dicts,
+        executive_summary=executive_summary,
+        period=period,
+    )
+
+    # Save report
+    report_path = save_report(content, "foresight")
+    print(f"Report saved to: {report_path}")
+
+    return report_path

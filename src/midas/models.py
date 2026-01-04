@@ -553,6 +553,34 @@ class LearningCase(BaseModel):
     )
 
 
+class WatcherType(str, Enum):
+    """Type of news watcher agent."""
+
+    TECH_NEWS = "tech_news_watcher"
+    US_GOV = "us_gov_watcher"
+    OTHER_GOV = "other_gov_watcher"
+    GENERAL_NEWS = "general_news_watcher"
+    PREDICTION_MONITOR = "prediction_monitor"
+
+
+class SuggestedFeed(BaseModel):
+    """A suggested RSS feed to add based on learned insights."""
+
+    name: str = Field(description="Human-readable feed name")
+    url: str = Field(description="RSS feed URL")
+    target_watcher: WatcherType = Field(description="Which watcher should use this feed")
+    reason: str = Field(description="Why this feed should be added")
+    priority: str = Field(default="medium", description="Priority: low/medium/high")
+
+
+class SuggestedKeyword(BaseModel):
+    """A suggested keyword to watch for in news."""
+
+    keyword: str = Field(description="Keyword or phrase to watch for")
+    target_watcher: WatcherType = Field(description="Which watcher should use this keyword")
+    reason: str = Field(description="Why this keyword is important")
+
+
 class LearnedInsight(BaseModel):
     """An insight learned from analyzing price movements."""
 
@@ -574,6 +602,19 @@ class LearnedInsight(BaseModel):
     updated_at: datetime = Field(default_factory=datetime.now)
     importance: str = Field(
         default="medium", description="Importance level: low/medium/high/critical"
+    )
+    # Feedback to other agents
+    suggested_feeds: list[SuggestedFeed] = Field(
+        default_factory=list,
+        description="RSS feeds to add based on this insight"
+    )
+    suggested_keywords: list[SuggestedKeyword] = Field(
+        default_factory=list,
+        description="Keywords to watch for based on this insight"
+    )
+    target_watchers: list[WatcherType] = Field(
+        default_factory=list,
+        description="Which watchers should act on this insight"
     )
 
 

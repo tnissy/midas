@@ -24,6 +24,11 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import END, StateGraph
 
 from midas.config import DATA_DIR, GEMINI_API_KEY, LLM_MODEL, extract_llm_text
+from midas.models import WatcherType
+from midas.tools.feedback_loader import get_suggested_keywords_for_watcher
+
+# Watcher type for feedback loading
+WATCHER_TYPE = WatcherType.PREDICTION_MONITOR
 
 # =============================================================================
 # Constants
@@ -300,6 +305,13 @@ async def collect_articles(state: FarseerState) -> FarseerState:
     sources = load_sources()
     keywords = sources.get("search_keywords", {})
     outlook_queries = keywords.get("outlook", [f"{year} outlook", f"{year} predictions", f"{year} forecast"])
+
+    # Add dynamic keywords from insights
+    dynamic_keywords = get_suggested_keywords_for_watcher(WATCHER_TYPE)
+    if dynamic_keywords:
+        print(f"  Adding {len(dynamic_keywords)} dynamic keywords from insights")
+        for kw in dynamic_keywords:
+            outlook_queries.append(f"{year} {kw}")
 
     for query in outlook_queries[:3]:
         print(f"  Searching: '{query}'...")
